@@ -3,12 +3,13 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Eye, EyeOff, ShieldCheck, Loader2, Mail, Lock, Building2, ChevronRight, Shield, Zap, Laptop } from 'lucide-react';
+import { Eye, EyeOff, Loader2, Mail, Lock, Building2, ChevronRight, Shield, Zap, Laptop } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthContext';
 import { useBranding } from '@/contexts/BrandingContext';
 import { BrandName } from '@/components/BrandMark';
 import { PolicyDecisionStream } from '@/components/PolicyDecisionStream';
+import { BrandIcon } from '@/components/BrandIcon';
 import { authAPI, TenantInfo, getOIDCLoginURL } from '@/lib/auth-api';
 import { oidcProvidersAPI, OIDCProviders } from '@/lib/oidc-settings-api';
 import { cn } from '@/lib/utils';
@@ -199,7 +200,7 @@ export default function LoginPage() {
                 <img src={branding.logo_url} alt="" className="relative w-12 h-12 object-contain" />
               ) : (
                 <div className="relative flex items-center justify-center w-12 h-12 rounded-xl bg-primary text-primary-foreground shadow-lg">
-                  <ShieldCheck className="w-6 h-6" />
+                  <BrandIcon className="w-7 h-7" />
                 </div>
               )}
             </div>
@@ -310,7 +311,7 @@ export default function LoginPage() {
                 <img src={branding.logo_url} alt="" className="relative w-10 h-10 object-contain" />
               ) : (
                 <div className="relative flex items-center justify-center w-10 h-10 rounded-xl bg-primary text-primary-foreground">
-                  <ShieldCheck className="w-5 h-5" />
+                  <BrandIcon className="w-6 h-6" />
                 </div>
               )}
             </div>

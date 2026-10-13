@@ -112,26 +112,29 @@ const [selectedOS, setSelectedOS] = useState('');
   const { toast } = useToast();
   const { token, user } = useAuth();
 
-  // Generate the config command with actual registration token
-  const tunnelFlag = deployApplication && TUNNEL_URL ? ` \\\n  --tunnel-url "${TUNNEL_URL}"` : '';
+  // Generate the config command with actual registration token.
+  //
+  // These append to a single-line command, so they carry no line
+  // continuations: a backslash-newline here would put the macOS command back
+  // into the shape that pastes badly into the installer's one-line field.
+  const tunnelFlag = deployApplication && TUNNEL_URL ? ` --tunnel-url "${TUNNEL_URL}"` : '';
   const hostEntryFlags = hostEntriesEnabled
     ? hostEntries
         .filter(e => e.ip.trim() && e.domain.trim())
-        .map(e => ` \\\n  --host-entry "${e.ip.trim()}:${e.domain.trim()}"`)
+        .map(e => ` --host-entry "${e.ip.trim()}:${e.domain.trim()}"`)
         .join('')
     : '';
   const isWindowsSelected = selectedOS === 'windows';
 
+  // ONE line, like the Windows command beside it.
+  //
+  // It used to be split across nine lines with backslash continuations, which
+  // reads nicely and pastes badly: the macOS installer asks for it in a
+  // single-line field, so only the tail was visible and the continuation
+  // backslashes had to be stripped back out. A command that is copied far more
+  // often than it is read should be shaped for copying.
   const configCommand = registrationToken
-    ? `sudo wxt-agent configure \\
-  --token "${registrationToken}" \\
-  --tenant "${user?.tenant_id || 'default'}" \\
-  --org "${user?.tenant_id || 'default'}" \\
-  --project "default" \\
-  --user "${user?.username || 'admin'}" \\
-  --host "${BACKEND_URL}" \\
-  --api-host "${GRPC_URL}" \\
-  --name "${name}"${tunnelFlag}${hostEntryFlags}`
+    ? `sudo wxt-agent configure --token "${registrationToken}" --tenant "${user?.tenant_id || 'default'}" --org "${user?.tenant_id || 'default'}" --project "default" --user "${user?.username || 'admin'}" --host "${BACKEND_URL}" --api-host "${GRPC_URL}" --name "${name}"${tunnelFlag}${hostEntryFlags}`
     : 'Loading...';
 
   // Windows uses a single-line command (works in both cmd and PowerShell, run as
@@ -174,8 +177,11 @@ const [selectedOS, setSelectedOS] = useState('');
 
   const downloadLine = (filename: string) =>
     isWindowsPackage
+      // -UseBasicParsing / curl bypass the browser cache anyway, but a proxy
+      // in front of the backend does not — and the filename is stable, so a
+      // cached copy would be served for ever.
       ? `Invoke-WebRequest -Uri "${BACKEND_URL}/agent/download/${filename}" -OutFile "${filename}"`
-      : `curl -L -o ${filename} ${BACKEND_URL}/agent/download/${filename}`;
+      : `curl -fL --no-progress-meter -H "Cache-Control: no-cache" -o ${filename} ${BACKEND_URL}/agent/download/${filename}`;
 
   const downloadCommand = agentFilename ? downloadLine(agentFilename) : '';
 
@@ -192,7 +198,12 @@ const [selectedOS, setSelectedOS] = useState('');
       return;
     }
 
-    const downloadURL = `${BACKEND_URL}/agent/download/${agentFilename}`;
+    // Cache-busted. The filename never changes — wxt-agent-arm64.dmg is always
+    // the current build — so without this a browser that has the file already
+    // serves it again, and every new release is invisible. The server now says
+    // no-store as well; this is the belt to that braces, because a proxy
+    // between the two answers to neither.
+    const downloadURL = `${BACKEND_URL}/agent/download/${agentFilename}?t=${Date.now()}`;
 
 
     // Create download link
@@ -712,14 +723,29 @@ const [selectedOS, setSelectedOS] = useState('');
                   {selectedOS === 'macos' && (
                     <ol className="list-decimal list-inside text-sm text-muted-foreground space-y-2">
                       <li>Download the agent using the button above</li>
-                      <li>Locate the downloaded DMG file in Downloads folder</li>
-                      <li>Double-click the DMG file to mount it</li>
-                      <li>Run <strong>Install.command</strong> inside the DMG — it installs both <code className="font-mono bg-muted px-1 rounded">wxt-agent</code> and <code className="font-mono bg-muted px-1 rounded">wxt-agent-session</code></li>
-                      <li>If security warning appears: System Preferences → Security & Privacy → Allow</li>
-                      <li>Open Terminal and verify: <code className="font-mono bg-muted px-1 rounded">wxt-agent version</code></li>
+                      <li>Double-click the downloaded DMG to open it</li>
+                      <li>Drag <strong>wxt-agent</strong> onto the Applications folder</li>
                       <li>
-                        <strong>For remote control:</strong> grant <code className="font-mono bg-muted px-1 rounded">wxt-agent-session</code> both{' '}
-                        <strong>Screen Recording</strong> and <strong>Accessibility</strong> under System Settings › Privacy &amp; Security.
+                        Open <strong>wxt-agent</strong>, paste the command below when it asks,
+                        and authenticate. Opening it again later shows the agent&apos;s status,
+                        checks its permissions, or removes it.
+                      </li>
+                      <li>
+                        Check it afterwards with{' '}
+                        <code className="font-mono bg-muted px-1 rounded">wxt-agent version</code>
+                      </li>
+                      <li className="text-muted-foreground">
+                        If macOS says it &ldquo;could not verify&rdquo; the app, run{' '}
+                        <code className="font-mono bg-muted px-1 rounded">
+                          xattr -dr com.apple.quarantine /Applications/wxt-agent.app
+                        </code>{' '}
+                        once. That mark comes from the browser download; it goes away for good
+                        when the app is signed with an Apple Developer ID.
+                      </li>
+                      <li>
+                        <strong>For remote control:</strong> switch on <code className="font-mono bg-muted px-1 rounded">wxt-agent-session</code> under both{' '}
+                        <strong>Accessibility</strong> and <strong>Screen Recording</strong> in System Settings › Privacy &amp; Security.
+                        The entries appear there on their own once the agent has run — nothing to add by hand.
                         macOS cannot grant these silently, so remote control stays unavailable until you do.
                       </li>
                     </ol>
@@ -764,18 +790,35 @@ const [selectedOS, setSelectedOS] = useState('');
                 </div>
               )}
 
+              {/* A wrapping, selectable text area rather than a <pre> that
+                  scrolls sideways.
+                  
+                  The command is one long line — deliberately, so it survives
+                  being pasted into the installer's single-line field — and in
+                  a horizontally scrolling block that means the token is off
+                  screen, the copy button sits on top of the first words, and
+                  there is no way to see what is being copied. Read-only, so
+                  the text is selectable and cannot be edited into something
+                  that no longer works. */}
               <div className="relative">
-                <pre className="p-4 rounded-xl terminal-bg text-sm font-mono overflow-x-auto">
-                  <code className="terminal-text">{activeConfigCommand}</code>
-                </pre>
+                <textarea
+                  readOnly
+                  value={activeConfigCommand}
+                  rows={4}
+                  onFocus={e => e.currentTarget.select()}
+                  spellCheck={false}
+                  aria-label="Enrolment command"
+                  className="w-full resize-y rounded-xl terminal-bg terminal-text p-4 pr-14 font-mono text-sm leading-relaxed break-all focus:outline-none focus:ring-2 focus:ring-primary/40"
+                />
                 <Button
-                  size="icon"
-                  variant="ghost"
-                  className="absolute top-2 right-2"
+                  size="sm"
+                  variant="secondary"
+                  className="absolute top-2 right-2 gap-1.5"
                   onClick={handleCopy}
                   disabled={!registrationToken}
                 >
                   {copied ? <Check className="w-4 h-4 text-success" /> : <Copy className="w-4 h-4" />}
+                  {copied ? 'Copied' : 'Copy'}
                 </Button>
               </div>
 

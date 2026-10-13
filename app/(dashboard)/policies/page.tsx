@@ -1,6 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { Suspense, useCallback, useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import {
   Loader2, Plus, ShieldCheck, Trash2, FlaskConical, Info, MonitorSmartphone, Clock,
 } from 'lucide-react';
@@ -36,8 +37,18 @@ const ACTION_STYLES: Record<string, string> = {
  *  elevate across the fleet — and, for now, what that would do if it were
  *  turned on. */
 export default function PoliciesPage() {
+  // useSearchParams needs a Suspense boundary to stay statically renderable.
+  return (
+    <Suspense fallback={null}>
+      <PoliciesPageInner />
+    </Suspense>
+  );
+}
+
+function PoliciesPageInner() {
   const { token } = useAuth();
   const { toast } = useToast();
+  const params = useSearchParams();
 
   const [policies, setPolicies] = useState<AppPolicy[]>([]);
   const [enforcementEnabled, setEnforcementEnabled] = useState(false);
@@ -46,6 +57,24 @@ export default function PoliciesPage() {
   const [editing, setEditing] = useState<AppPolicy | null>(null);
   const [simulation, setSimulation] = useState<SimulationResponse | null>(null);
   const [simulating, setSimulating] = useState(false);
+
+  // Arriving from a machine's Applications tab with "Block this application".
+  // A draft is OPENED, not saved: scope and the catch-all both still need a
+  // human decision, and silently creating a block policy from one click in a
+  // list is how a fleet-wide outage gets authored by accident.
+  const [seeded, setSeeded] = useState(false);
+  useEffect(() => {
+    if (seeded || params.get('block') === null) return;
+    setSeeded(true);
+    setEditing(
+      draftBlockPolicy({
+        name: params.get('block') ?? '',
+        publisher: params.get('publisher') ?? '',
+        agent: params.get('agent') ?? '',
+        bundleID: params.get('bundle_id') ?? '',
+      }),
+    );
+  }, [params, seeded]);
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -289,6 +318,44 @@ function describeScope(policy: { scope?: { kind?: string; group_ids?: string[]; 
     default:
       return 'All machines';
   }
+}
+
+/** A one-rule block policy, pre-filled from an installed application.
+ *
+ *  Bundle ID is only set for a macOS application. Populated criteria are
+ *  ANDed, so carrying an empty bundle ID onto a Windows app would produce a
+ *  rule that matches nothing — the easiest way to author a block that
+ *  silently does nothing at all.
+ */
+function draftBlockPolicy(app: { name: string; publisher: string; agent: string; bundleID: string }): AppPolicy {
+  return {
+    name: `Block ${app.name}`,
+    description: `Created from the Applications tab of ${app.agent || 'a machine'}.`,
+    enabled: true,
+    // Scoped to the one machine it was raised from. Widening it to the whole
+    // fleet is a deliberate edit, never the default.
+    scope: app.agent ? { kind: 'machine', agent_ids: [app.agent] } : { kind: 'tenant' },
+    mode: 'audit',
+    priority: 0,
+    // Allow, not block: this policy exists to stop ONE application. A
+    // catch-all block would quietly turn it into an allow-list covering
+    // everything else on the machine.
+    default_action: 'allow',
+    rules: [
+      {
+        id: `r-${Date.now()}`,
+        name: `Block ${app.name}`,
+        enabled: true,
+        action: 'block',
+        match: {
+          app_name: { op: 'equals', values: [app.name] },
+          publisher: { op: 'equals', values: app.publisher ? [app.publisher] : [] },
+          file_path: { op: 'contains', values: [] },
+          bundle_id: { op: 'equals', values: app.bundleID ? [app.bundleID] : [] },
+        },
+      },
+    ],
+  };
 }
 
 function newPolicy(): AppPolicy {

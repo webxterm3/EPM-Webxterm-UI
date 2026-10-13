@@ -107,6 +107,32 @@ export const applicationsAPI = {
       { token },
     ),
 
+  /** Ask one machine to re-scan its software now.
+   *
+   *  Returns when the request has been handed to the agent, which is all the
+   *  backend can honestly report: the result arrives later through the normal
+   *  inventory channel.
+   */
+  requestScan: async (token: string, agentId: string): Promise<{ requested: boolean; message: string }> =>
+    apiRequest<{ requested: boolean; message: string }>(
+      `/machines/${encodeURIComponent(agentId)}/applications/scan`,
+      { token, method: 'POST' },
+    ),
+
+  /** Ask every connected machine in the tenant to re-scan now.
+   *
+   *  Offline machines are reported, not treated as a failure: a fleet always
+   *  has some asleep, and the caller needs the number to know how complete the
+   *  refreshed catalog is.
+   */
+  requestFleetScan: async (
+    token: string,
+  ): Promise<{ requested: number; offline: number; failed: string[]; total: number }> =>
+    apiRequest<{ requested: number; offline: number; failed: string[]; total: number }>(
+      '/applications/scan',
+      { token, method: 'POST' },
+    ),
+
   /** The fleet-wide catalog of distinct applications. */
   catalog: async (
     token: string,

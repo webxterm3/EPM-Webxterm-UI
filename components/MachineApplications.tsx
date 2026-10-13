@@ -1,7 +1,11 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Loader2, Search, Package, AlertCircle, User, Monitor } from 'lucide-react';
+import { Loader2, Search, Package, AlertCircle, User, Monitor, ShieldX, RefreshCw } from 'lucide-react';
+import Link from 'next/link';
+
+import { Button } from '@/components/ui/button';
+import { useToast } from '@/hooks/use-toast';
 
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
@@ -31,6 +35,8 @@ export default function MachineApplications({ token, agentId }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [includeRemoved, setIncludeRemoved] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const { toast } = useToast();
 
   const load = useCallback(async () => {
     if (!token || !agentId) return;
@@ -51,6 +57,38 @@ export default function MachineApplications({ token, agentId }: Props) {
       setLoading(false);
     }
   }, [token, agentId, search, includeRemoved]);
+
+  /** Ask the agent to scan now, then reload once it has had time to report.
+   *
+   *  The reload is on a timer rather than on the response because the response
+   *  only means "the agent was asked". Reloading immediately would re-render
+   *  the same list and read as the button doing nothing.
+   */
+  const scanNow = useCallback(async () => {
+    if (!token || !agentId || scanning) return;
+    setScanning(true);
+    try {
+      const res = await applicationsAPI.requestScan(token, agentId);
+      toast({ title: 'Scan requested', description: res.message });
+
+      // A registry walk takes milliseconds; a macOS bundle scan took ~5s on a
+      // real machine. Eight seconds covers both without leaving the button
+      // spinning long enough to look stuck.
+      setTimeout(() => {
+        load();
+        setScanning(false);
+      }, 8000);
+    } catch (err) {
+      // An offline machine answers 409 with a sentence worth showing verbatim
+      // — it explains that the list refreshes on its own at reconnect.
+      toast({
+        title: 'Could not start the scan',
+        description: err instanceof Error ? err.message : 'The agent did not accept the request.',
+        variant: 'destructive',
+      });
+      setScanning(false);
+    }
+  }, [token, agentId, scanning, load, toast]);
 
   // Debounced so typing in the search box does not fire a request per keystroke.
   useEffect(() => {
@@ -85,9 +123,16 @@ export default function MachineApplications({ token, agentId }: Props) {
         <Package className="mx-auto mb-3 h-8 w-8 text-muted-foreground" />
         <p className="font-medium">This machine has not reported its software yet.</p>
         <p className="mt-1 text-sm text-muted-foreground">
-          Agents scan on connect and then every 12 hours. A machine that has just been
+          Agents scan when they connect and then once a day. A machine that has just been
           enrolled, or one running an older agent, will not appear here yet.
         </p>
+        {/* The button belongs here above all: "nothing is listed" is the state
+            somebody actually wants to force a scan from. Leaving it only on
+            the populated view put it everywhere except where it was needed. */}
+        <Button variant="outline" size="sm" onClick={scanNow} disabled={scanning || !agentId} className="mt-4 gap-2">
+          <RefreshCw className={cn('h-3.5 w-3.5', scanning && 'animate-spin')} />
+          {scanning ? 'Scanning…' : 'Scan now'}
+        </Button>
       </div>
     );
   }
@@ -105,11 +150,18 @@ export default function MachineApplications({ token, agentId }: Props) {
           />
         </div>
 
-        <div className="flex items-center gap-2">
-          <Switch id="include-removed" checked={includeRemoved} onCheckedChange={setIncludeRemoved} />
-          <Label htmlFor="include-removed" className="text-sm font-normal text-muted-foreground">
-            Show uninstalled
-          </Label>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <Switch id="include-removed" checked={includeRemoved} onCheckedChange={setIncludeRemoved} />
+            <Label htmlFor="include-removed" className="text-sm font-normal text-muted-foreground">
+              Show uninstalled
+            </Label>
+          </div>
+
+          <Button variant="outline" size="sm" onClick={scanNow} disabled={scanning || !agentId} className="gap-2">
+            <RefreshCw className={cn('h-3.5 w-3.5', scanning && 'animate-spin')} />
+            {scanning ? 'Scanning…' : 'Scan now'}
+          </Button>
         </div>
       </div>
 
@@ -141,6 +193,7 @@ export default function MachineApplications({ token, agentId }: Props) {
                 <th className="px-4 py-2.5 font-medium">Version</th>
                 <th className="px-4 py-2.5 font-medium">Publisher</th>
                 <th className="px-4 py-2.5 font-medium">Installed for</th>
+                <th className="px-4 py-2.5 text-right font-medium">Action</th>
               </tr>
             </thead>
             <tbody>
@@ -182,6 +235,23 @@ export default function MachineApplications({ token, agentId }: Props) {
                       </span>
                     )}
                   </td>
+                  <td className="px-4 py-2.5 text-right">
+                    {/* Opens a pre-filled draft rather than blocking on the
+                        spot. A block authored from one click in a list, with
+                        no sight of its scope or its catch-all, is how an
+                        estate-wide outage happens by accident. */}
+                    <Button
+                      asChild
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-destructive"
+                    >
+                      <Link href={blockHref(app, agentId)}>
+                        <ShieldX className="h-3.5 w-3.5" />
+                        Block
+                      </Link>
+                    </Button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -190,6 +260,20 @@ export default function MachineApplications({ token, agentId }: Props) {
       )}
     </div>
   );
+}
+
+/** Link to the policy editor, pre-filled to block this one application.
+ *
+ *  bundle_id travels only when the application actually has one. Criteria are
+ *  ANDed server-side, so sending an empty bundle ID for a Windows application
+ *  would build a rule that matches nothing at all.
+ */
+function blockHref(app: InstalledApp, agentId: string | undefined): string {
+  const params = new URLSearchParams({ block: app.name });
+  if (app.publisher) params.set('publisher', app.publisher);
+  if (app.bundle_id) params.set('bundle_id', app.bundle_id);
+  if (agentId) params.set('agent', agentId);
+  return `/policies?${params.toString()}`;
 }
 
 function formatWhen(iso: string): string {

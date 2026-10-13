@@ -1,6 +1,6 @@
 'use client';
 
-import { ShieldCheck } from 'lucide-react';
+import { BrandIcon } from '@/components/BrandIcon';
 import { useBranding } from '@/contexts/BrandingContext';
 import { cn } from '@/lib/utils';
 
@@ -13,8 +13,8 @@ interface BrandMarkProps {
 }
 
 // Renders the product mark (logo + name) from the org's branding config, set by a
-// super admin in Settings → Theme Configuration. Falls back to the default
-// EPM shield icon + name when nothing has been customized yet.
+// super admin in Settings → Theme Configuration. Falls back to the product's
+// own mark — see BrandIcon — when nothing has been customized yet.
 export function BrandMark({
   iconBoxClassName = 'w-10 h-10 rounded-xl bg-primary text-primary-foreground',
   iconClassName = 'w-6 h-6',
@@ -37,7 +37,9 @@ export function BrandMark({
     />
   ) : (
     <div className={cn('flex items-center justify-center shrink-0', iconBoxClassName)}>
-      <ShieldCheck className={iconClassName} />
+      {/* The mark sits in a box already filled with the accent colour, so it
+          renders in the box's foreground colour and knocks the caret out. */}
+      <BrandIcon className={iconClassName} />
     </div>
   );
 
