@@ -3,7 +3,7 @@
 import { Suspense, useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
-  Loader2, Plus, ShieldCheck, Trash2, FlaskConical, Info, MonitorSmartphone, Clock,
+  Loader2, Plus, ShieldCheck, Trash2, FlaskConical, Info, MonitorSmartphone, Clock, History,
 } from 'lucide-react';
 
 import { Breadcrumb } from '@/components/ui/page-breadcrumb';
@@ -25,6 +25,9 @@ import PolicyEditor from '@/components/PolicyEditor';
 import PolicySimulation from '@/components/PolicySimulation';
 import RemoteAccessPolicyEditor from '@/components/RemoteAccessPolicyEditor';
 import { TabHeader, InfoBanner } from '@/components/TabHeader';
+import { EnforcementSwitch } from '@/components/EnforcementSwitch';
+import EnforcementActivity from '@/components/EnforcementActivity';
+import { appControlAPI } from '@/lib/appcontrol-api';
 
 const ACTION_STYLES: Record<string, string> = {
   block: 'bg-red-500/15 text-red-400 border-red-500/30',
@@ -52,6 +55,7 @@ function PoliciesPageInner() {
 
   const [policies, setPolicies] = useState<AppPolicy[]>([]);
   const [enforcementEnabled, setEnforcementEnabled] = useState(false);
+  const [savingEnforcement, setSavingEnforcement] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const [editing, setEditing] = useState<AppPolicy | null>(null);
@@ -72,6 +76,7 @@ function PoliciesPageInner() {
         publisher: params.get('publisher') ?? '',
         agent: params.get('agent') ?? '',
         bundleID: params.get('bundle_id') ?? '',
+        path: params.get('path') ?? '',
       }),
     );
   }, [params, seeded]);
@@ -98,20 +103,95 @@ function PoliciesPageInner() {
     load();
   }, [load]);
 
+  const setEnforcement = async (next: boolean) => {
+    if (!token) return;
+    setSavingEnforcement(true);
+    try {
+      const res = await appControlAPI.setEnforcement(token, next);
+      setEnforcementEnabled(res.enforcement);
+      toast({
+        title: next ? 'Enforcement is on' : 'Enforcement is off',
+        description: res.message,
+      });
+      // Reloaded rather than assumed: the server pushes the new mode to every
+      // connected machine as part of this call, and the list should reflect
+      // what it now reports rather than what we asked for.
+      load();
+    } catch (err) {
+      toast({
+        title: 'Could not change enforcement',
+        description: err instanceof Error ? err.message : 'Error',
+        variant: 'destructive',
+      });
+    } finally {
+      setSavingEnforcement(false);
+    }
+  };
+
   const save = async (policy: AppPolicy) => {
     if (!token) return;
     try {
-      if (policy.id) await policiesAPI.update(token, policy.id, policy);
-      else await policiesAPI.create(token, policy);
+      const saved = policy.id
+        ? await policiesAPI.update(token, policy.id, policy)
+        : await policiesAPI.create(token, policy);
       toast({ title: policy.id ? 'Policy updated' : 'Policy created' });
       setEditing(null);
       load();
+      // Saved is not the same as working, and the gap between the two is where
+      // people lose afternoons: a policy scoped to one machine, or a rule with
+      // one more condition than its author meant, saves perfectly and then
+      // does nothing. The projection already answers "what would this do" —
+      // it was just behind a button nobody had a reason to press.
+      void reportWhatItWillDo(saved ?? policy);
     } catch (err) {
       toast({
         title: 'Save failed',
         description: err instanceof Error ? err.message : 'Error',
         variant: 'destructive',
       });
+    }
+  };
+
+  /** Project the saved policy and say so when the answer is "nothing". */
+  const reportWhatItWillDo = async (policy: AppPolicy) => {
+    if (!token) return;
+    try {
+      const res = await policiesAPI.simulate(token, policy);
+      const s = res.simulation?.summary;
+      if (!s) return;
+
+      if (s.machines_affected === 0) {
+        toast({
+          title: 'Saved — but it affects no machines',
+          description:
+            s.machines_evaluated === 0
+              ? 'No machines have reported their software yet, so there is nothing to match against.'
+              : `None of the ${s.machines_evaluated} machines in scope have software this policy matches. ` +
+                'Check the "Applies to" section and the rule conditions — every field you fill in must match.',
+          variant: 'destructive',
+        });
+        return;
+      }
+      if (s.installs_matched === 0) {
+        toast({
+          title: 'Saved — but no software matches',
+          description:
+            'The machines are in scope, but no installed application matches these rules. ' +
+            'Every field you fill in must match at the same time, so an extra condition narrows the rule.',
+          variant: 'destructive',
+        });
+        return;
+      }
+      toast({
+        title: `Matches ${s.installs_matched} install(s) on ${s.machines_affected} machine(s)`,
+        description:
+          policy.mode === 'enforce'
+            ? 'Open Project impact to see exactly which.'
+            : 'This policy is in audit mode, so nothing is blocked. Open Project impact to see what it would do.',
+      });
+    } catch {
+      // The projection is advisory. A policy that saved is saved, and a
+      // failure here must not read as a failure to save.
     }
   };
 
@@ -169,6 +249,10 @@ function PoliciesPageInner() {
             <MonitorSmartphone className="h-4 w-4" />
             Remote Access
           </TabsTrigger>
+          <TabsTrigger value="activity" className="gap-2">
+            <History className="h-4 w-4" />
+            Activity
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="applications" className="space-y-6">
@@ -182,16 +266,14 @@ function PoliciesPageInner() {
             }
           />
 
-          {!enforcementEnabled && (
-            // The most important thing on this page. Without it an operator
-            // will assume a saved block rule is blocking something.
-            <InfoBanner title="Nothing here is enforced yet.">
-              Policies are authored and projected against your reported inventory. No machine
-              receives them and no application is blocked or elevated. Use{' '}
-              <span className="font-medium text-foreground">Project impact</span> to see what a
-              policy would do before enforcement is switched on.
-            </InfoBanner>
-          )}
+          {/* The most important control on this page, and above the list
+              rather than inside a policy: whether any of this acts on
+              somebody's machine is one decision for the whole organisation. */}
+          <EnforcementSwitch
+            enabled={enforcementEnabled}
+            saving={savingEnforcement}
+            onChange={setEnforcement}
+          />
 
           {editing ? (
             <PolicyEditor
@@ -234,6 +316,13 @@ function PoliciesPageInner() {
                           disabled
                         </Badge>
                       )}
+                      {/* Whether this policy is actually doing anything depends on
+                          TWO switches — its own mode and the organisation-wide
+                          Enforcement switch — and an operator who has set one but
+                          not the other had no way to tell. A policy that looks
+                          saved and does nothing is the worst state this page can
+                          be in, so the answer is on the card itself. */}
+                      <PolicyModeBadge policy={policy} enforcementEnabled={enforcementEnabled} />
                     </CardTitle>
                     <CardDescription className="mt-1">
                       {describeScope(policy)} · {policy.rules?.length ?? 0} rule
@@ -304,8 +393,46 @@ function PoliciesPageInner() {
         <TabsContent value="remote-access" className="space-y-6">
           <RemoteAccessPolicies />
         </TabsContent>
+
+        <TabsContent value="activity" className="space-y-6">
+          <TabHeader description="What your machines actually did: software closed, launches prevented, applications restored. Decisions are made on the endpoint, so this is the only record of them." />
+          <EnforcementActivity />
+        </TabsContent>
       </Tabs>
     </div>
+  );
+}
+
+/** What this policy is actually doing, right now, on the fleet.
+ *
+ *  Three states, not two. A policy set to enforce while the organisation-wide
+ *  switch is off is neither enforcing nor merely auditing — it is waiting, and
+ *  saying "audit" there would be a lie that costs somebody an afternoon. */
+function PolicyModeBadge({
+  policy,
+  enforcementEnabled,
+}: {
+  policy: AppPolicy;
+  enforcementEnabled: boolean;
+}) {
+  if (policy.mode !== 'enforce') {
+    return (
+      <Badge variant="outline" className="text-[10px] text-muted-foreground">
+        audit only — nothing is blocked
+      </Badge>
+    );
+  }
+  if (!enforcementEnabled) {
+    return (
+      <Badge variant="outline" className="border-amber-500/50 text-[10px] text-amber-500">
+        waiting — turn on Enforcement above
+      </Badge>
+    );
+  }
+  return (
+    <Badge variant="outline" className="border-red-500/50 text-[10px] text-red-500">
+      enforcing
+    </Badge>
   );
 }
 
@@ -327,10 +454,37 @@ function describeScope(policy: { scope?: { kind?: string; group_ids?: string[]; 
  *  rule that matches nothing — the easiest way to author a block that
  *  silently does nothing at all.
  */
-function draftBlockPolicy(app: { name: string; publisher: string; agent: string; bundleID: string }): AppPolicy {
+function draftBlockPolicy(app: {
+  name: string;
+  publisher: string;
+  agent: string;
+  bundleID: string;
+  path: string;
+}): AppPolicy {
+  // What the machine actually reports, written into the description.
+  //
+  // People ask where the path went, and the honest answer is that it is a
+  // terrible condition and a useful fact. A path is where ONE machine happens
+  // to keep ONE application; matching on it narrows the rule to that machine.
+  // But not showing it at all left somebody guessing at the exact strings the
+  // other fields are being matched against, which is its own way to write a
+  // rule that silently matches nothing.
+  const reported = [
+    `name "${app.name}"`,
+    app.publisher && `publisher "${app.publisher}"`,
+    app.bundleID && `bundle id "${app.bundleID}"`,
+    app.path && `path "${app.path}"`,
+  ]
+    .filter(Boolean)
+    .join(', ');
+
   return {
     name: `Block ${app.name}`,
-    description: `Created from the Applications tab of ${app.agent || 'a machine'}.`,
+    description:
+      `Created from the Applications tab of ${app.agent || 'a machine'}.\n` +
+      `That machine reports: ${reported}.\n` +
+      `The path is shown for reference only — matching on it would tie this rule ` +
+      `to one machine's layout.`,
     enabled: true,
     // Scoped to the one machine it was raised from. Widening it to the whole
     // fleet is a deliberate edit, never the default.

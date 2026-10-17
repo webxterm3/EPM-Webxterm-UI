@@ -208,8 +208,28 @@
 }
 
 @layer components {
+  /* No backdrop-filter here, deliberately.
+   *
+   * This used to be `bg-card/80 backdrop-blur-xl`, and it is applied to over a
+   * hundred elements across the app — every card on every page. Each one
+   * becomes its own GPU compositing layer that has to re-sample whatever is
+   * behind it on every frame, and with that many of them inside a scrolling
+   * document (under a sticky, also-blurred header) the compositor starts
+   * dropping repaints: scroll up and down a few times and whole regions of the
+   * page come back blank.
+   *
+   * The blur was buying nothing. `body` is a flat `bg-background` colour with
+   * no gradient or image, so blurring it produces exactly the colour it
+   * started as. The translucency is kept, which over a solid background is the
+   * same flat tint it always was — the page looks identical and stops
+   * disappearing.
+   *
+   * Blur still belongs where something is genuinely behind the element and
+   * moving: the sticky header over scrolling content, the remote-control
+   * overlays over live video, dialogs over the page. Those are a handful of
+   * elements, not a hundred. */
   .glass-card {
-    @apply bg-card/80 backdrop-blur-xl border border-border/50;
+    @apply bg-card/80 border border-border/50;
   }
 
   .glow-border {

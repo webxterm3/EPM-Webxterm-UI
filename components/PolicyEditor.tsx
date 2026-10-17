@@ -20,6 +20,8 @@ import {
   PolicyAction,
   PolicyScopeKind,
   MatchOp,
+  MatchCriteria,
+  StringMatch,
   criteriaAreEmpty,
   emptyCriteria,
 } from '@/lib/policies-api';
@@ -146,6 +148,31 @@ export default function PolicyEditor({ policy, onCancel, onSave, onSimulate, sim
         </div>
 
         <div className="space-y-1.5">
+          <Label htmlFor="policy-mode">What this policy does</Label>
+          <SelectInput
+            id="policy-mode"
+            value={draft.mode === 'enforce' ? 'enforce' : 'audit'}
+            onChange={v => update({ mode: v })}
+          >
+            <option value="audit">Audit — report matches, change nothing</option>
+            <option value="enforce">Enforce — close and block matching software</option>
+          </SelectInput>
+          {draft.mode === 'enforce' ? (
+            // Two conditions, not one, and an operator who only knows about
+            // the first will think a saved policy is doing something it is
+            // not. Both are stated here rather than only on the switch above.
+            <p className="text-xs text-amber-500">
+              This only takes effect while your organisation&apos;s Enforcement switch is also on.
+              With both on, matching software is closed and prevented from launching.
+            </p>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Matches are recorded and projected. Nothing on any machine changes.
+            </p>
+          )}
+        </div>
+
+        <div className="space-y-1.5">
           <Label htmlFor="policy-description">Description</Label>
           <Textarea
             id="policy-description"
@@ -155,6 +182,31 @@ export default function PolicyEditor({ policy, onCancel, onSave, onSimulate, sim
             rows={2}
           />
         </div>
+
+        {/* Only offered where it is meaningful. On an allow-list policy the
+            rules are the exceptions and the catch-all does the blocking, so
+            removal would sweep up every application the rules did not name. */}
+        {draft.mode === 'enforce' && draft.default_action !== 'block' && (
+          <div className="flex items-start justify-between gap-4 rounded-lg border border-border/60 p-3">
+            <div className="space-y-0.5">
+              <Label className="font-medium">Remove blocked applications</Label>
+              <p className="max-w-xl text-xs text-muted-foreground">
+                Software a rule blocks is moved off the machine, not just stopped from
+                opening — so it disappears from the Applications folder and cannot be
+                installed back while the rule stands.{' '}
+                <span className="text-foreground">
+                  It is moved, never deleted
+                </span>
+                : the agent puts it back if you change the rule, and when the agent is
+                uninstalled.
+              </p>
+            </div>
+            <Switch
+              checked={draft.remove_blocked ?? false}
+              onCheckedChange={v => update({ remove_blocked: v })}
+            />
+          </div>
+        )}
 
         <ScopePicker
           scope={draft.scope}
@@ -356,9 +408,65 @@ function RuleEditor({
         {field('bundle_id', 'Bundle ID (macOS)', 'com.valvesoftware.steam')}
       </div>
 
-      <p className="text-xs text-muted-foreground">
-        Fields you fill in must all match; values within one field are alternatives.
+      <RuleReach match={rule.match} />
+    </div>
+  );
+}
+
+/** What this rule will actually match, said out loud as it is being written.
+ *
+ *  "Fields you fill in must all match" was already on the form, in small grey
+ *  text under four inputs, and it is not what somebody filling in a form
+ *  believes: adding detail feels like describing the application better, not
+ *  like narrowing the rule. The cost of that is a policy that saves cleanly
+ *  and matches nothing, which is indistinguishable from the product being
+ *  broken.
+ *
+ *  So the conditions are counted back, and the one combination that can NEVER
+ *  match anything — a Windows path together with a macOS bundle identifier,
+ *  which no single machine can satisfy — is called out as the error it is. */
+function RuleReach({ match }: { match: MatchCriteria }) {
+  const filled = (m?: StringMatch) => (m?.values ?? []).some(v => v.trim() !== '');
+
+  const conditions: string[] = [];
+  if (filled(match.app_name)) conditions.push('name');
+  if (filled(match.publisher)) conditions.push('publisher');
+  if (filled(match.file_path)) conditions.push('path');
+  if (filled(match.bundle_id)) conditions.push('bundle ID');
+  if ((match.sha256 ?? []).some(v => v.trim() !== '')) conditions.push('hash');
+
+  const windowsPath = (match.file_path?.values ?? []).some(v => /^[a-zA-Z]:[\\/]/.test(v.trim()));
+  const impossible = windowsPath && filled(match.bundle_id);
+
+  if (conditions.length === 0) {
+    return (
+      <p className="text-xs text-amber-500">
+        This rule has no conditions, so it matches nothing. An empty rule never matches —
+        it is never treated as &ldquo;everything&rdquo;.
       </p>
+    );
+  }
+
+  return (
+    <div className="space-y-1">
+      <p className="text-xs text-muted-foreground">
+        Matches software where{' '}
+        <span className="text-foreground">{conditions.join(' AND ')}</span>
+        {conditions.length > 1 && ' all match at once'}. Values within one field are
+        alternatives.
+      </p>
+      {impossible && (
+        <p className="text-xs text-destructive">
+          A Windows path and a macOS bundle ID can never both be true on one machine, so this
+          rule matches nothing anywhere. Keep whichever platform you mean.
+        </p>
+      )}
+      {!impossible && conditions.length >= 3 && (
+        <p className="text-xs text-amber-500">
+          Every extra field makes this rule narrower, not more accurate. If you are unsure what
+          a machine reports for a field, leave it empty.
+        </p>
+      )}
     </div>
   );
 }

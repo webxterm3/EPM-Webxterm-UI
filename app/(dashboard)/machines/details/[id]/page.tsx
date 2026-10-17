@@ -94,6 +94,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import MachineApplications from '@/components/MachineApplications';
+import EnforcementActivity from '@/components/EnforcementActivity';
 import { copyToClipboard } from '@/lib/clipboard';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
@@ -2434,7 +2435,26 @@ export default function MachineDetails() {
             there is no reason to pull an inventory for a tab nobody opened. */}
         <TabsContent value="applications" className="space-y-6">
           {activeTab === 'applications' && (
-            <MachineApplications token={token} agentId={machine?.agent_id} />
+            <>
+              <MachineApplications token={token} agentId={machine?.agent_id} />
+
+              {/* What was actually done to this machine's software, under the
+                  list of what is on it. Together they answer the two
+                  questions anybody opening this tab has: what is installed,
+                  and what did we stop. */}
+              {machine?.agent_id && (
+                <div className="space-y-4 pt-2">
+                  <div>
+                    <h3 className="text-base font-semibold">Enforcement activity</h3>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Software closed or prevented from launching on this machine. These decisions
+                      are made by the agent on the endpoint, so this is the only record of them.
+                    </p>
+                  </div>
+                  <EnforcementActivity agentId={machine.agent_id} />
+                </div>
+              )}
+            </>
           )}
         </TabsContent>
 

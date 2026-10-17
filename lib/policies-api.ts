@@ -42,10 +42,22 @@ export interface AppPolicy {
   description?: string;
   enabled: boolean;
   scope: PolicyScope;
-  /** "audit" or "enforce". The backend pins everything to audit in this phase. */
+  /** "audit" or "enforce".
+   *
+   *  Enforce is a request, not a guarantee: the resolver forces audit unless
+   *  the tenant's own enforcement switch is also on, so a policy saved as
+   *  enforce cannot act by itself. */
   mode: string;
   priority: number;
   default_action: PolicyAction;
+  /** Make a block bite harder: software a RULE matched is MOVED off the
+   *  machine rather than only stopped from launching.
+   *
+   *  A move, never a delete. The agent puts it back when the policy stops
+   *  blocking it, and when the agent is uninstalled. Unavailable on an
+   *  allow-list policy (default_action "block"), where the catch-all would
+   *  sweep up everything the rules did not name. */
+  remove_blocked?: boolean;
   rules: PolicyRule[];
   created_at?: string;
   updated_at?: string;

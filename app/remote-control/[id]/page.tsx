@@ -41,7 +41,17 @@ export default function RemoteControlPage() {
   const viewOnly = search.get('view_only') === '1';
   const reason = search.get('reason') || '';
 
+
   const { token } = useAuth();
+
+
+  // Flipped in an effect, so it is false on the server render AND on the
+
+  // client's hydration render — which is what keeps those two identical.
+
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => setMounted(true), []);
   const { branding } = useBranding();
 
   const [session, setSession] = useState<RemoteControlSession | null>(null);
@@ -153,7 +163,15 @@ export default function RemoteControlPage() {
     }
   });
 
-  if (!token) {
+  // Nothing is decided from the token until after mount.
+  //
+  // AuthContext resolves it from localStorage, which does not exist on the
+  // server — so the server renders "Loading…" and an already-signed-in client
+  // renders the session view on its very first pass. React calls that a
+  // hydration mismatch and throws the whole tree away to re-render it, which
+  // it reports in the console as an error and the user sees as a flash.
+  // The dashboard layout already guards this way; this page did not.
+  if (!mounted || !token) {
     return <Centered>Loading…</Centered>;
   }
   if (startError) {
