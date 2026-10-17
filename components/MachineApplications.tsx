@@ -267,11 +267,21 @@ export default function MachineApplications({ token, agentId }: Props) {
  *  bundle_id travels only when the application actually has one. Criteria are
  *  ANDed server-side, so sending an empty bundle ID for a Windows application
  *  would build a rule that matches nothing at all.
+ *
+ *  The install path travels too, but as REFERENCE rather than as a condition.
+ *  It is the field people ask for and the one that most often breaks a rule:
+ *  a path is where this one machine happens to keep this one application, so
+ *  matching on it narrows the rule to that machine and that layout. It is
+ *  shown in the editor so nobody has to guess what the machine reports, and
+ *  left out of the criteria so the rule still works on the next machine.
  */
 function blockHref(app: InstalledApp, agentId: string | undefined): string {
   const params = new URLSearchParams({ block: app.name });
   if (app.publisher) params.set('publisher', app.publisher);
   if (app.bundle_id) params.set('bundle_id', app.bundle_id);
+  if (app.install_path || app.exe_path) {
+    params.set('path', app.install_path || app.exe_path || '');
+  }
   if (agentId) params.set('agent', agentId);
   return `/policies?${params.toString()}`;
 }
