@@ -28,7 +28,7 @@ import {
 
 const ACTIONS: { value: PolicyAction; label: string; hint: string }[] = [
   { value: 'block', label: 'Block', hint: 'Stop it running' },
-  { value: 'elevate', label: 'Elevate', hint: 'Run it with admin rights' },
+  { value: 'elevate', label: 'Elevate', hint: 'Run it with admin rights — not yet available on any platform' },
   { value: 'allow', label: 'Allow', hint: 'Explicitly permit it' },
   { value: 'default', label: 'Exempt', hint: 'Skip the rules below and fall through' },
 ];
@@ -408,6 +408,8 @@ function RuleEditor({
         {field('bundle_id', 'Bundle ID (macOS)', 'com.valvesoftware.steam')}
       </div>
 
+      {rule.action === 'elevate' && <ElevateNotSupportedYet />}
+
       <RuleReach match={rule.match} />
     </div>
   );
@@ -425,6 +427,33 @@ function RuleEditor({
  *  So the conditions are counted back, and the one combination that can NEVER
  *  match anything — a Windows path together with a macOS bundle identifier,
  *  which no single machine can satisfy — is called out as the error it is. */
+/** Said here, at the moment somebody chooses it, rather than left to be
+ *  discovered later in the activity feed.
+ *
+ *  No platform can elevate yet: the agent's platformElevator returns
+ *  "unsupported" on both Windows and macOS. Everything around the action is
+ *  real — it is carried in the policy, it survives a save, the simulation
+ *  counts it and the endpoint reports that it cannot honour it — but nothing
+ *  runs with administrator rights because of it.
+ *
+ *  A rule that looks configured and quietly does nothing is the failure this
+ *  product has already shipped twice. The dropdown offering "Run it with
+ *  admin rights" with no qualification is exactly that shape, so the
+ *  qualification goes next to the choice. */
+function ElevateNotSupportedYet() {
+  return (
+    <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-600 dark:text-amber-400">
+      <p className="font-medium">Nothing will run elevated because of this rule — yet.</p>
+      <p className="mt-1">
+        Elevation is not implemented on Windows or macOS. The rule is saved, pushed to
+        endpoints and counted in simulations, and each machine reports back that it cannot
+        honour it — you can see that under Enforcement activity. Use <strong>Block</strong> or{' '}
+        <strong>Allow</strong> for rules you need enforced today.
+      </p>
+    </div>
+  );
+}
+
 function RuleReach({ match }: { match: MatchCriteria }) {
   const filled = (m?: StringMatch) => (m?.values ?? []).some(v => v.trim() !== '');
 

@@ -133,8 +133,39 @@ const [selectedOS, setSelectedOS] = useState('');
   // single-line field, so only the tail was visible and the continuation
   // backslashes had to be stripped back out. A command that is copied far more
   // often than it is read should be shaped for copying.
+  // The enrolment arguments, written once and shared by both macOS commands
+  // below, so the two can never drift apart.
+  const enrolArgs = registrationToken
+    ? `--token "${registrationToken}" --tenant "${user?.tenant_id || 'default'}" --org "${user?.tenant_id || 'default'}" --project "default" --user "${user?.username || 'admin'}" --host "${BACKEND_URL}" --api-host "${GRPC_URL}" --name "${name}"${tunnelFlag}${hostEntryFlags}`
+    : '';
+
+  // Enrols an agent that is ALREADY installed — the disk-image route.
   const configCommand = registrationToken
-    ? `sudo wxt-agent configure --token "${registrationToken}" --tenant "${user?.tenant_id || 'default'}" --org "${user?.tenant_id || 'default'}" --project "default" --user "${user?.username || 'admin'}" --host "${BACKEND_URL}" --api-host "${GRPC_URL}" --name "${name}"${tunnelFlag}${hostEntryFlags}`
+    ? `sudo wxt-agent configure ${enrolArgs}`
+    : 'Loading...';
+
+  // Downloads, installs and enrols in one step. This is what macOS leads with.
+  //
+  // Not a shortcut — the only route that works unaided. The agent is signed
+  // with our own certificate and is NOT notarised by Apple, so Gatekeeper
+  // refuses anything a BROWSER downloaded, and the wording it picks is
+  // "wxt-agent is damaged and can't be opened. You should move it to the
+  // Bin", offering no other button. The bundle is intact and its signature
+  // verifies; macOS simply will not vouch for software it cannot trace back
+  // to Apple. Finder withholds the app's icon for the same reason, which is
+  // why it also shows as a blank page instead of the product logo — one
+  // cause, two symptoms, and neither is a fault in the build.
+  //
+  // What Gatekeeper actually acts on is com.apple.quarantine, a mark only
+  // browsers apply. curl does not set it, so a terminal install never meets
+  // Gatekeeper at all. Nothing is disabled and no warning is suppressed: the
+  // file never acquires the mark that would raise one, and Gatekeeper still
+  // guards everything else on the machine.
+  //
+  // An Apple Developer ID plus notarisation is what makes the double-click
+  // path work. Until that exists, this is the route that works on every Mac.
+  const macInstallCommand = registrationToken
+    ? `curl -fsSL ${BACKEND_URL}/agent/install-macos.sh | sudo bash -s -- ${enrolArgs}`
     : 'Loading...';
 
   // Windows uses a single-line command (works in both cmd and PowerShell, run as
@@ -146,7 +177,7 @@ const [selectedOS, setSelectedOS] = useState('');
     ? `${windowsExeName} configure --token "${registrationToken}" --tenant "${user?.tenant_id || 'default'}" --org "${user?.tenant_id || 'default'}" --project "default" --user "${user?.username || 'admin'}" --host "${BACKEND_URL}" --api-host "${GRPC_URL}" --name "${name}"`
     : 'Loading...';
 
-  const activeConfigCommand = isWindowsSelected ? windowsConfigCommand : configCommand;
+  const activeConfigCommand = isWindowsSelected ? windowsConfigCommand : macInstallCommand;
 
   // Get selected OS object
   const selectedOSObj = operatingSystems.find(os => os.id === selectedOS);
@@ -664,6 +695,13 @@ const [selectedOS, setSelectedOS] = useState('');
                         One file. The session helper that remote control needs is bundled inside it
                         and installed automatically.
                       </p>
+                      {selectedOS === 'macos' && (
+                        <p className="text-xs text-muted-foreground mt-1.5">
+                          Optional on macOS &mdash; the command in the next step fetches this for
+                          you, and a copy downloaded here needs the extra terminal step described
+                          below before macOS will open it.
+                        </p>
+                      )}
                       <Button className="mt-3" size="sm" onClick={handleDownloadAgent}>
                         <Download className="w-4 h-4 mr-2" />
                         Download Agent
@@ -721,34 +759,77 @@ const [selectedOS, setSelectedOS] = useState('');
                   )}
                   */}
                   {selectedOS === 'macos' && (
-                    <ol className="list-decimal list-inside text-sm text-muted-foreground space-y-2">
-                      <li>Download the agent using the button above</li>
-                      <li>Double-click the downloaded DMG to open it</li>
-                      <li>Drag <strong>wxt-agent</strong> onto the Applications folder</li>
-                      <li>
-                        Open <strong>wxt-agent</strong>, paste the command below when it asks,
-                        and authenticate. Opening it again later shows the agent&apos;s status,
-                        checks its permissions, or removes it.
-                      </li>
-                      <li>
-                        Check it afterwards with{' '}
-                        <code className="font-mono bg-muted px-1 rounded">wxt-agent version</code>
-                      </li>
-                      <li className="text-muted-foreground">
-                        If macOS says it &ldquo;could not verify&rdquo; the app, run{' '}
-                        <code className="font-mono bg-muted px-1 rounded">
-                          xattr -dr com.apple.quarantine /Applications/wxt-agent.app
-                        </code>{' '}
-                        once. That mark comes from the browser download; it goes away for good
-                        when the app is signed with an Apple Developer ID.
-                      </li>
-                      <li>
-                        <strong>For remote control:</strong> switch on <code className="font-mono bg-muted px-1 rounded">wxt-agent-session</code> under both{' '}
-                        <strong>Accessibility</strong> and <strong>Screen Recording</strong> in System Settings › Privacy &amp; Security.
-                        The entries appear there on their own once the agent has run — nothing to add by hand.
-                        macOS cannot grant these silently, so remote control stays unavailable until you do.
-                      </li>
-                    </ol>
+                    <div className="space-y-4 text-sm text-muted-foreground">
+                      <div className="p-3 rounded-lg bg-primary/10 border border-primary/20">
+                        <p className="font-medium text-primary">
+                          You do not need to download anything on macOS.
+                        </p>
+                        <p className="mt-1">
+                          The next step gives you one command that downloads, installs and enrols
+                          the agent. It is the route we recommend, and the only one that works
+                          without a manual step &mdash; see why below.
+                        </p>
+                      </div>
+
+                      <div>
+                        <p className="font-medium text-foreground mb-2">
+                          If macOS calls the app &ldquo;damaged&rdquo;
+                        </p>
+                        <p>
+                          It is not damaged. This build is signed with Coredge&apos;s own
+                          certificate and is not notarised by Apple, so Gatekeeper will not vouch
+                          for it &mdash; and{' '}
+                          <em>&ldquo;wxt-agent is damaged and can&rsquo;t be opened. You should
+                          move it to the Bin&rdquo;</em> is simply the wording macOS uses when it
+                          declines. Finder leaves the app showing a blank icon instead of the
+                          product logo for the same reason.
+                        </p>
+                        <p className="mt-2">
+                          Gatekeeper only acts on files a <strong>browser</strong> downloaded. A
+                          terminal install never carries that mark, which is why the one-line
+                          command in the next step is unaffected.
+                        </p>
+                      </div>
+
+                      <div>
+                        <p className="font-medium text-foreground mb-2">
+                          Or install from the disk image
+                        </p>
+                        <ol className="list-decimal list-inside space-y-2">
+                          <li>Download the agent using the button above</li>
+                          <li>Double-click the downloaded DMG to open it</li>
+                          <li>Drag <strong>wxt-agent</strong> onto the Applications folder</li>
+                          <li>
+                            In Terminal, clear the browser&apos;s download mark &mdash;{' '}
+                            <strong>this step is required, not a fallback</strong>:
+                            <code className="block font-mono bg-muted px-2 py-1.5 rounded mt-1.5 text-xs">
+                              xattr -dr com.apple.quarantine /Applications/wxt-agent.app
+                            </code>
+                          </li>
+                          <li>
+                            Open <strong>wxt-agent</strong> and paste the enrolment command from
+                            the next step. Opening it again later shows the agent&apos;s status,
+                            checks its permissions, or removes it.
+                          </li>
+                          <li>
+                            Check it afterwards with{' '}
+                            <code className="font-mono bg-muted px-1 rounded">wxt-agent version</code>
+                          </li>
+                        </ol>
+                      </div>
+
+                      <div>
+                        <p className="font-medium text-foreground mb-2">For remote control</p>
+                        <p>
+                          Switch on the single <strong>wxt-agent</strong> entry under both{' '}
+                          <strong>Accessibility</strong> and <strong>Screen Recording</strong> in
+                          System Settings › Privacy &amp; Security. Each pane lists one entry,
+                          carrying the product icon, and it covers the whole product &mdash;
+                          nothing to add by hand. macOS cannot grant these silently, so remote
+                          control stays unavailable until you do.
+                        </p>
+                      </div>
+                    </div>
                   )}
                   {selectedOS === 'windows' && (
                     <ol className="list-decimal list-inside text-sm text-muted-foreground space-y-2">
@@ -772,7 +853,11 @@ const [selectedOS, setSelectedOS] = useState('');
                 <Terminal className="w-5 h-5 text-primary" />
                 Configure Agent
               </CardTitle>
-              <CardDescription>Run this command on your machine to connect it to "{name}"</CardDescription>
+              <CardDescription>
+                {isWindowsSelected
+                  ? `Run this command on your machine to connect it to "${name}"`
+                  : `Run this command on your machine to install the agent and connect it to "${name}"`}
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               {/* Show selected configuration */}
@@ -862,19 +947,58 @@ const [selectedOS, setSelectedOS] = useState('');
                   </div>
 
                   <div className="p-4 rounded-xl border border-border bg-card">
+                    <h4 className="font-medium mb-2">This command installs as well as enrols</h4>
+                    <p className="text-sm text-muted-foreground">
+                      There is nothing to download first and nothing to drag into Applications. It
+                      fetches the agent, installs it, and connects it to this machine template.
+                    </p>
+                    <p className="text-sm text-muted-foreground mt-2">
+                      It installs from a terminal on purpose. This build is signed with our own
+                      certificate rather than an Apple Developer ID, so macOS refuses to open a copy
+                      that a <em>browser</em> downloaded &mdash; it calls the app
+                      &ldquo;damaged&rdquo; and offers only <strong>Move to Bin</strong>, and Finder
+                      shows a blank icon instead of the logo. Nothing is wrong with the build;
+                      a terminal install simply never acquires the download mark that triggers
+                      that check, and Gatekeeper still guards everything else.
+                    </p>
+                  </div>
+
+                  <div className="p-4 rounded-xl border border-border bg-card">
+                    <h4 className="font-medium mb-2">Already installed from the disk image?</h4>
+                    <p className="text-sm text-muted-foreground mb-3">
+                      Then enrol the copy that is already there instead:
+                    </p>
+                    <input
+                      readOnly
+                      value={configCommand}
+                      onFocus={e => e.currentTarget.select()}
+                      spellCheck={false}
+                      aria-label="Enrolment command for an agent that is already installed"
+                      className="w-full rounded-lg bg-muted p-2.5 font-mono text-xs focus:outline-none focus:ring-2 focus:ring-primary/40"
+                    />
+                  </div>
+
+                  <div className="p-4 rounded-xl border border-border bg-card">
                     <h4 className="font-medium mb-2">Remote Control Permissions</h4>
                     <p className="text-sm text-muted-foreground">
-                      After installing, grant <code className="font-mono bg-muted px-1 rounded">wxt-agent-session</code> both{' '}
-                      <strong>Screen Recording</strong> and <strong>Accessibility</strong> under
-                      System Settings › Privacy &amp; Security. macOS cannot grant these silently,
-                      and remote control stays unavailable until someone does.
+                      After installing, switch on the single <strong>wxt-agent</strong> entry under
+                      both <strong>Screen Recording</strong> and <strong>Accessibility</strong> in
+                      System Settings › Privacy &amp; Security. Each pane lists one entry, carrying
+                      the product icon, and it covers the whole product &mdash; there is nothing to
+                      add by hand. macOS cannot grant these silently, so remote control stays
+                      unavailable until someone does.
+                    </p>
+                    <p className="text-sm text-muted-foreground mt-2">
+                      These grants survive an upgrade, so do not remove and re-add an entry after
+                      updating. A switch that is on while remote control still fails is a grant
+                      left from a differently signed build; clear it with{' '}
+                      <code className="font-mono bg-muted px-1 rounded">sudo wxt-agent repair-permissions</code>.
                     </p>
                   </div>
 
                   <div className="p-4 rounded-xl bg-warning/10 border border-warning/20">
                     <p className="text-sm text-warning font-medium">
-                      Run this with sudo. With --allow-sudo, the agent can execute commands with
-                      elevated privileges.
+                      Run this in Terminal. It uses sudo, so macOS will ask for your password.
                     </p>
                   </div>
                 </>

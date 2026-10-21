@@ -11,6 +11,13 @@ export interface AppControlSettings {
   enforcement: boolean;
   updated_at?: string;
   updated_by?: string;
+  /** Whether an alert would actually be delivered.
+   *
+   *  Sending is a no-op when the server has no SMTP configured — right for an
+   *  optional notification, wrong to be silent about. Without this the portal
+   *  cannot tell "nothing has happened worth mailing" from "mail was never
+   *  going to be sent", and neither can the person reading it. */
+  email_notifications?: boolean;
 }
 
 /** What an agent did, or declined to do, to the software on a machine.
@@ -25,6 +32,9 @@ export type EnforcementMechanism =
   | 'launch-unlock'
   | 'quarantine'
   | 'restore'
+  | 'elevate'
+  | 'elevate-revoked'
+  | 'elevate-launch'
   | 'refused';
 
 export interface EnforcementEvent {
@@ -57,6 +67,8 @@ export interface EnforcementEventsResponse {
   total: number;
   page: number;
   limit: number;
+  /** Echoed back by the server, so an empty list can say what it was empty OF. */
+  search?: string;
   enforcement_enabled: boolean;
 }
 
@@ -76,12 +88,16 @@ export const appControlAPI = {
 
   events: async (
     token: string,
-    opts: { page?: number; limit?: number; agentId?: string } = {},
+    opts: { page?: number; limit?: number; agentId?: string; search?: string } = {},
   ): Promise<EnforcementEventsResponse> => {
     const q = new URLSearchParams();
     if (opts.page) q.set('page', String(opts.page));
     if (opts.limit) q.set('limit', String(opts.limit));
     if (opts.agentId) q.set('agent_id', opts.agentId);
+    // Searched on the server, because the browser only ever holds one page.
+    // Filtering what is already loaded answers "where is Steam on this page",
+    // which is never what is being asked.
+    if (opts.search?.trim()) q.set('q', opts.search.trim());
     const qs = q.toString();
     return apiRequest<EnforcementEventsResponse>(`/app-control/events${qs ? `?${qs}` : ''}`, {
       token,
@@ -102,6 +118,12 @@ export function describeMechanism(m: string): string {
       return 'Removed from the machine';
     case 'restore':
       return 'Put back';
+    case 'elevate':
+      return 'Allowed to run as administrator';
+    case 'elevate-revoked':
+      return 'Administrator rights withdrawn';
+    case 'elevate-launch':
+      return 'Ran as administrator';
     case 'refused':
       return 'Policy refused';
     default:
@@ -121,7 +143,9 @@ export function describeEnforcedBy(by?: string): string {
     case 'execute-bit':
       return "macOS: the application's binary is not executable";
     case 'unsupported':
-      return 'This platform cannot prevent launches';
+      return 'This platform cannot do this yet';
+    case 'image-file-execution-options-broker':
+      return 'Windows redirects the launch through the agent, which starts it elevated';
     default:
       return by ?? '';
   }

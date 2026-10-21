@@ -55,6 +55,9 @@ function PoliciesPageInner() {
 
   const [policies, setPolicies] = useState<AppPolicy[]>([]);
   const [enforcementEnabled, setEnforcementEnabled] = useState(false);
+  // undefined until the first load, so the notice is not shown before the
+  // answer is known — a warning that flashes and withdraws reads as a fault.
+  const [emailNotifications, setEmailNotifications] = useState<boolean | undefined>(undefined);
   const [savingEnforcement, setSavingEnforcement] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -88,6 +91,7 @@ function PoliciesPageInner() {
       const res = await policiesAPI.list(token);
       setPolicies(res.policies ?? []);
       setEnforcementEnabled(res.enforcement_enabled);
+      setEmailNotifications(res.email_notifications);
     } catch (err) {
       toast({
         title: 'Could not load policies',
@@ -274,6 +278,20 @@ function PoliciesPageInner() {
             saving={savingEnforcement}
             onChange={setEnforcement}
           />
+
+          {/* Said here because this is the screen where the rules that trigger
+              the alerts are written. Without it, an administrator who adds an
+              elevate rule and waits for the mail that never comes cannot tell
+              a quiet fleet from a server with no mail configured. */}
+          {emailNotifications === false && (
+            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-600 dark:text-amber-400">
+              <span className="font-medium">Email alerts are not being sent.</span>{' '}
+              This server has no SMTP configured, so nothing is mailed when an application
+              is granted administrator rights, when a rule cannot be honoured, or when a
+              remote session starts. Everything is still recorded here and in the activity
+              below.
+            </div>
+          )}
 
           {editing ? (
             <PolicyEditor
