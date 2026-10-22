@@ -8,6 +8,7 @@ import { Breadcrumb } from '@/components/ui/page-breadcrumb';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import GroupAdmins from '@/components/GroupAdmins';
 import { Input } from '@/components/ui/input';
 import {
   Table,
@@ -36,6 +37,7 @@ import { Label } from '@/components/ui/label';
 import {
   Users,
   Server,
+  ShieldCheck,
   ArrowLeft,
   Loader2,
   UserPlus,
@@ -146,7 +148,19 @@ export default function GroupDetailsPage() {
       // Fetch available users (all users not in group)
       const allUsers = await usersAPI.listUsers(token, user?.tenant_id);
       const memberIds = membersData.members?.map((m: any) => m.id) || [];
-      const available = allUsers.users.filter((u: any) => !memberIds.includes(u.id));
+      // Members only — administrators are offered on the Admins tab instead.
+      //
+      // The two lists answer different questions and were the same list:
+      // members USE these machines, administrators decide who else may. One
+      // picker offering both made it easy to add somebody as a member when
+      // the intention was to make them an approver, which looks identical on
+      // this page and behaves nothing like it.
+      const available = allUsers.users.filter(
+        (u: any) =>
+          !memberIds.includes(u.id) &&
+          u.role !== 'company_admin' &&
+          u.role !== 'super_admin',
+      );
       setAvailableUsers(available);
 
       // Fetch available machines (machines not in this group)
@@ -433,7 +447,7 @@ export default function GroupDetailsPage() {
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <CardHeader>
             <div className="flex items-center justify-between">
-              <TabsList className="grid grid-cols-2 w-[400px]">
+              <TabsList className="grid grid-cols-3 w-[560px]">
                 <TabsTrigger value="members" className="gap-2">
                   <Users className="w-4 h-4" />
                   Members ({filteredMembers.length})
@@ -441,6 +455,13 @@ export default function GroupDetailsPage() {
                 <TabsTrigger value="machines" className="gap-2">
                   <Server className="w-4 h-4" />
                   Machines ({filteredMachines.length})
+                </TabsTrigger>
+                {/* Who decides access requests for the machines on the tab
+                    beside this one. Members use them; administrators say who
+                    else may. */}
+                <TabsTrigger value="admins" className="gap-2">
+                  <ShieldCheck className="w-4 h-4" />
+                  Admins
                 </TabsTrigger>
               </TabsList>
               <div>
@@ -461,6 +482,15 @@ export default function GroupDetailsPage() {
           </CardHeader>
 
           <CardContent>
+            {/* Administrators Tab */}
+            <TabsContent value="admins" className="mt-0">
+              <GroupAdmins
+                groupId={groupId}
+                tenantId={group?.tenant_id}
+                canEdit={isAdmin}
+              />
+            </TabsContent>
+
             {/* Members Tab */}
             <TabsContent value="members" className="mt-0">
               <div className="mb-4">
@@ -625,7 +655,8 @@ export default function GroupDetailsPage() {
               <SelectContent>
                 {availableUsers.length === 0 ? (
                   <div className="p-2 text-sm text-muted-foreground">
-                    No available users
+                    Everybody who is not an administrator is already a member.
+                    Administrators are added on the Admins tab.
                   </div>
                 ) : (
                   availableUsers.map((user: any) => (

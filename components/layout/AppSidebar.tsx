@@ -6,6 +6,7 @@ import Link from 'next/link';
 import {
   LayoutDashboard,
   Monitor,
+  MonitorSmartphone,
   BookOpen,
   Users,
   Package,
@@ -87,8 +88,6 @@ const navSections: NavSection[] = [
     items: [
       { title: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
       { title: 'Organisation', href: '/user-management', icon: Users, roles: ['super_admin', 'company_admin'] },
-      // EPM: Access Requests disabled — re-enable later
-      // { title: 'Access Requests', href: '/access-requests', icon: ShieldCheck, roles: ['super_admin', 'company_admin'] },
     ],
   },
   {
@@ -97,6 +96,10 @@ const navSections: NavSection[] = [
       { title: 'Machines', href: '/machines', icon: Monitor },
       { title: 'Applications', href: '/applications', icon: Boxes, roles: ['super_admin', 'company_admin'] },
       { title: 'Policies', href: '/policies', icon: ShieldCheck, roles: ['super_admin', 'company_admin'] },
+      // Not role-gated: anybody may ASK for access to a machine, and the tab
+      // they land on is their own requests. The approval queue and the policy
+      // inside are gated by the page itself.
+      { title: 'Remote Access', href: '/remote-access', icon: MonitorSmartphone },
       { title: 'Packages', href: '/packages', icon: Package },
     ],
   },
