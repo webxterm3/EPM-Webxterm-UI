@@ -17,6 +17,7 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
+import { SelectInput } from '@/components/FilterBar';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/components/ui/use-toast';
 import { cn } from '@/lib/utils';
@@ -55,13 +56,28 @@ type DurationUnit = (typeof DURATION_UNITS)[number]['value'];
  *  typo, and granting one is harder to notice than refusing it. */
 const MAX_MINUTES = 30 * 24 * 60;
 
-const STATUS_STYLE: Record<AccessRequest['status'], { label: string; className: string }> = {
+const STATUS_STYLE: Record<string, { label: string; className: string }> = {
   pending: { label: 'Pending', className: 'bg-amber-500/15 text-amber-500 border-amber-500/30' },
   approved: { label: 'Active', className: 'bg-emerald-500/15 text-emerald-500 border-emerald-500/30' },
-  expired: { label: 'Completed', className: 'bg-muted text-muted-foreground border-border' },
+  completed: { label: 'Completed', className: 'bg-muted text-muted-foreground border-border' },
+  expired: { label: 'Expired', className: 'bg-muted text-muted-foreground border-border' },
   rejected: { label: 'Rejected', className: 'bg-red-500/15 text-red-500 border-red-500/30' },
   revoked: { label: 'Revoked', className: 'bg-red-500/15 text-red-500 border-red-500/30' },
 };
+
+/* Keyed by string, with a fallback, rather than by the status union.
+ *
+ * The union is this file's idea of what the backend can send, and the
+ * backend can outgrow it at any time — it just did, with 'completed'. The
+ * lookup was dereferenced with no fallback, so the first request carrying a
+ * status this map had not heard of threw while rendering and took the whole
+ * page with it. An unknown status is now shown as itself. */
+function statusStyle(status: string) {
+  return STATUS_STYLE[status] ?? {
+    label: status || 'Unknown',
+    className: 'bg-muted text-muted-foreground border-border',
+  };
+}
 
 function when(ts?: string): string {
   if (!ts) return '—';
@@ -157,7 +173,7 @@ export default function MyAccessRequests() {
             </thead>
             <tbody className="divide-y divide-border">
               {requests.map(r => {
-                const style = STATUS_STYLE[r.status];
+                const style = statusStyle(r.status);
                 return (
                   <tr key={r.id} className="hover:bg-accent/40">
                     <td className="px-4 py-2.5">
@@ -223,6 +239,9 @@ function NewRequestForm({ onClose, onCreated }: { onClose: () => void; onCreated
 
   const [wantInstall, setWantInstall] = useState(false);
   const [installReason, setInstallReason] = useState('');
+  /* Which of the three things is being asked for. Install by default,
+   * because it is what this section meant before the choice existed. */
+  const [installOp, setInstallOp] = useState<'install' | 'update' | 'remove'>('install');
   const [apps, setApps] = useState('');
 
   const [saving, setSaving] = useState(false);
@@ -303,7 +322,7 @@ function NewRequestForm({ onClose, onCreated }: { onClose: () => void; onCreated
           }),
           ...(wantAdmin && { admin_access: { reason: adminReason.trim() } }),
           ...(wantInstall && {
-            app_install: { reason: installReason.trim(), applications: appList },
+            app_install: { reason: installReason.trim(), applications: appList, operation: installOp },
           }),
         },
         // datetime-local gives a local wall-clock string with no zone; the
@@ -524,11 +543,27 @@ function NewRequestForm({ onClose, onCreated }: { onClose: () => void; onCreated
           </AskSection>
 
           <AskSection
-            title="Application Installation"
-            hint="Permission to install named software."
+            title="Applications"
+            hint="Permission to install, update or remove named software."
             enabled={wantInstall}
             onToggle={setWantInstall}
           >
+            <div className="space-y-1.5">
+              <Label htmlFor="ar-install-op">What do you need to do</Label>
+              {/* Asked, not assumed. An approver seeing "Docker Desktop" has
+                  to know whether it is going onto the machine or coming off;
+                  approving the wrong one is not a mistake they can see. */}
+              <SelectInput
+                id="ar-install-op"
+                aria-label="What do you need to do"
+                value={installOp}
+                onChange={v => setInstallOp(v as 'install' | 'update' | 'remove')}
+              >
+                <option value="install">Install it</option>
+                <option value="update">Update it</option>
+                <option value="remove">Remove it</option>
+              </SelectInput>
+            </div>
             <div className="space-y-1.5">
               <Label htmlFor="ar-apps">Which applications</Label>
               <Textarea

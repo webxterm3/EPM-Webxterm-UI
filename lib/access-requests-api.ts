@@ -32,14 +32,47 @@ export interface AccessRequest {
   asks?: {
     remote_support?: { reason?: string; control?: 'view_only' | 'full_control' };
     admin_access?: { reason?: string };
-    app_install?: { reason?: string; applications?: string[] };
+    app_install?: {
+      reason?: string;
+      applications?: string[];
+      /* Read off the bundle the agent refused, on a request raised from a
+       * machine. Empty on one typed into the portal, where there is no
+       * bundle to read them from.
+       *
+       * The publisher is what makes the approval mean something: with only a
+       * name, "Claude" is claimable by anything whose folder is called
+       * Claude.app, and an image's contents are whatever its author put
+       * there. An approver who cannot see it is approving a string. */
+      publisher?: string;
+      bundle_id?: string;
+      /* What is being asked for. Empty means install, so every request
+       * stored before this existed keeps the meaning it was approved with.
+       *
+       * The approver has to see the verb: "approve Docker Desktop" means
+       * something different depending on whether the person is putting it
+       * on the machine or taking it off, and approving the wrong one is not
+       * a mistake they can see. */
+      operation?: 'install' | 'update' | 'remove';
+    };
   };
 
   /** The window the session may run in. Both absent means "once approved,
    *  for the duration asked for". */
   not_before?: string;
   not_after?: string;
-  status: 'pending' | 'approved' | 'rejected' | 'expired' | 'revoked';
+  /* 'completed' means there is nothing left for the approver to do. An
+   * install request reaches it the moment it is decided: there is no window
+   * to watch, nothing to revoke mid-way, nobody to cut off. Distinct from
+   * 'expired', which means an ACTIVE grant's clock ran out. */
+  status: 'pending' | 'approved' | 'rejected' | 'expired' | 'revoked' | 'completed';
+  /* Where the request came from. 'endpoint' means a machine raised it
+   * because somebody opened an installer the policy would not allow; those
+   * carry no portal user id and finish when the software is installed. */
+  source?: 'endpoint' | 'portal';
+  /* The policy rule that forbids this software, when one does. Never
+   * stored — the server fills it in from the policy as it stands when the
+   * list is built, so an approver can see the answer before clicking. */
+  blocked_by_rule?: string;
   approved_by?: string;
   approved_at?: string;
   expires_at?: string;

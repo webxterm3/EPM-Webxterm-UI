@@ -1,8 +1,15 @@
 'use client';
 
-import { ChevronDown } from 'lucide-react';
+import React from 'react';
 
 import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 
 /** One labelled control in a filter row.
@@ -34,12 +41,19 @@ export function FilterField({
  *  a row coherent, and `pr-9` leaves room so a long option never runs
  *  underneath it.
  *
- *  Still a native select: it keeps keyboard behaviour, mobile pickers and
- *  accessibility for free, which a div-based menu would have to reimplement.
+/** EMPTY is not a value Radix accepts.
  *
- *  The height is overridable — `cn` merges Tailwind conflicts — so a dense
- *  form row can pass h-9 without this needing a second variant.
- */
+ *  A native <option value=""> is the ordinary way to write "no filter", and
+ *  callers use it — EndpointAuditEvents has `<option value="">All events`.
+ *  Radix throws on an empty SelectItem value, so the empty string is carried
+ *  through this component as a sentinel and converted back at the boundary.
+ *  Callers never see it, and `onChange` still hands them "".
+ *
+ *  Chosen so it cannot collide with a real value: no option in this codebase
+ *  is a unit-separator character, and anything that ever is would be a far
+ *  stranger bug than this. */
+const EMPTY_SENTINEL = '\u001fempty\u001f';
+
 export function SelectInput({
   id,
   value,
@@ -49,32 +63,61 @@ export function SelectInput({
   'aria-label': ariaLabel,
 }: {
   // Carried through so a <Label htmlFor> still finds its control — clicking
-  // the label focuses the select, and a screen reader announces the pair.
+  // the label focuses the control, and a screen reader announces the pair.
   id?: string;
   value: string;
   onChange: (value: string) => void;
+  /** <option> elements, as a native select would take. They are translated
+   *  below, so every existing caller keeps working unchanged. */
   children: React.ReactNode;
   className?: string;
   'aria-label'?: string;
 }) {
+  // Flattened, because callers build these with .map() and conditionals, and
+  // React.Children.toArray resolves both into a plain list.
+  const options = React.Children.toArray(children).flatMap(child => {
+    if (!React.isValidElement(child) || child.type !== 'option') return [];
+    const props = child.props as {
+      value?: string | number;
+      children?: React.ReactNode;
+      disabled?: boolean;
+    };
+    const raw = props.value === undefined ? '' : String(props.value);
+    return [{
+      raw,
+      value: raw === '' ? EMPTY_SENTINEL : raw,
+      label: props.children,
+      disabled: props.disabled,
+    }];
+  });
+
+  const selected = value === '' ? EMPTY_SENTINEL : value;
+  const current = options.find(o => o.value === selected);
+
   return (
-    <div className="relative">
-      <select
+    <Select
+      value={selected}
+      onValueChange={v => onChange(v === EMPTY_SENTINEL ? '' : v)}
+    >
+      <SelectTrigger
         id={id}
         aria-label={ariaLabel}
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        className={cn(
-          // h-10 matches the Input component's default, which is what the
-          // other controls in these rows are.
-          'h-10 w-full appearance-none rounded-md border border-input bg-background pl-3 pr-9 text-sm',
-          'focus:outline-none focus:ring-1 focus:ring-ring',
-          className,
-        )}
+        // h-10 matches the Input component's default, which is what the other
+        // controls in these rows are. cn merges Tailwind conflicts, so a dense
+        // form row can still pass h-9.
+        className={cn('h-10 w-full', className)}
       >
-        {children}
-      </select>
-      <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-    </div>
+        {/* The trigger renders the chosen option's own label, so a caller that
+            formats one (an icon, a muted hint) keeps that formatting. */}
+        <SelectValue>{current?.label}</SelectValue>
+      </SelectTrigger>
+      <SelectContent>
+        {options.map(o => (
+          <SelectItem key={o.value} value={o.value} disabled={o.disabled}>
+            {o.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }

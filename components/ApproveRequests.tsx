@@ -40,10 +40,17 @@ import { cn } from '@/lib/utils';
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
+/* "Active" is a session that is running. An install is not a session — it
+ * either happened or it did not — so an approved install used to sit under
+ * Active for the rest of its 24-hour window whether the software went on in
+ * the first minute or never went on at all. The endpoint now says which, and
+ * Completed is where those land. Expired keeps its own meaning: the clock
+ * ran out. */
 const STATUS_TABS = [
   { value: 'pending', label: 'Pending' },
   { value: 'approved', label: 'Active' },
-  { value: 'expired', label: 'Approved & Completed' },
+  { value: 'completed', label: 'Completed' },
+  { value: 'expired', label: 'Expired' },
   { value: 'rejected', label: 'Rejected' },
   { value: 'revoked', label: 'Revoked' },
 ] as const;
@@ -59,6 +66,23 @@ type StatusTab = (typeof STATUS_TABS)[number]['value'];
  *  Each ask is named, and remote support says which KIND — handing out full
  *  control believing it was view-only is the mistake this line exists to
  *  prevent. */
+/* The verb an approver is agreeing to. Empty means install, which is what
+ * every request stored before the field existed meant. */
+const APP_OPERATION: Record<string, string> = {
+  install: 'Install',
+  update: 'Update',
+  remove: 'Remove',
+};
+
+/* The certificate's common name without the kind of certificate it is.
+ * "Developer ID Application: Zoom Video Communications, Inc. (BJ4HAAB9B3)" is
+ * the whole authority line; the part an approver recognises is the company. */
+function signerName(publisher?: string): string {
+  if (!publisher) return '';
+  const name = publisher.replace(/^Developer ID Application:\s*/i, '').trim();
+  return name.replace(/\s*\([A-Z0-9]{10}\)$/, '').trim();
+}
+
 function describeAsk(r: AccessRequest): string {
   const parts: string[] = [];
 
@@ -69,7 +93,14 @@ function describeAsk(r: AccessRequest): string {
   if (r.asks?.admin_access) parts.push('Admin access');
   if (r.asks?.app_install) {
     const apps = r.asks.app_install.applications ?? [];
-    parts.push(apps.length > 0 ? `Install: ${apps.join(', ')}` : 'Application installation');
+    const verb = APP_OPERATION[r.asks.app_install.operation ?? 'install'] ?? 'Install';
+    let install = apps.length > 0 ? `${verb}: ${apps.join(', ')}` : `Application ${verb.toLowerCase()}`;
+    // Who signed it, where the agent could read it off the bundle. Without
+    // this the approver is deciding about a name, and a name is the one
+    // thing anybody can put on a folder.
+    const signer = signerName(r.asks.app_install.publisher);
+    if (signer) install += ` — signed by ${signer}`;
+    parts.push(install);
   }
 
   if (parts.length > 0) return parts.join(' · ');
@@ -117,6 +148,8 @@ export default function ApproveRequests() {
   const [approvingId, setApprovingId] = useState<string | null>(null);
 
   const [rejectTarget, setRejectTarget] = useState<AccessRequest | null>(null);
+  /* The request somebody tried to approve that a policy rule forbids. */
+  const [blockedTarget, setBlockedTarget] = useState<AccessRequest | null>(null);
   const [rejectComment, setRejectComment] = useState('');
   const [rejecting, setRejecting] = useState(false);
 
@@ -340,9 +373,15 @@ export default function ApproveRequests() {
                   {activeTab === 'pending' && (
                     <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Note</th>
                   )}
-                  {(activeTab === 'pending' || activeTab === 'approved') && (
+                  {activeTab === 'pending' && (
                     <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Actions</th>
                   )}
+                  {/* Approved By and Expires At come BEFORE Actions here,
+                      because that is the order the body emits them in: the
+                      Revoke button is the last cell in an approved row. The
+                      Actions header used to be written first for both tabs,
+                      so every column on the Active tab was labelled with its
+                      neighbour's name. */}
                   {activeTab === 'approved' && (
                     <>
                       <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">
@@ -351,6 +390,7 @@ export default function ApproveRequests() {
                       <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">
                         Expires At
                       </th>
+                      <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Actions</th>
                     </>
                   )}
                   {activeTab === 'expired' && (
@@ -401,7 +441,9 @@ export default function ApproveRequests() {
                         {r.machine_name}
                       </div>
                       {r.title && (
-                        <div className="mt-0.5 text-xs text-foreground">{r.title}</div>
+                        <div className="mt-0.5 max-w-[16rem] whitespace-normal break-words text-xs text-foreground">
+                          {r.title}
+                        </div>
                       )}
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap text-xs">
@@ -410,9 +452,23 @@ export default function ApproveRequests() {
                           "2h access" without knowing whether that is watching
                           a screen or administrator rights is not a decision,
                           it is a guess. */}
-                      <div className="mt-0.5 text-[11px] text-muted-foreground/80">
+                      {/* Wraps, and capped.
+                          Everything in this table is whitespace-nowrap, which
+                          is right for a date and wrong for a sentence: this
+                          line carries the application names and who signed
+                          them, so left to itself it widened the table until
+                          the whole page scrolled sideways. */}
+                      <div className="mt-0.5 max-w-[22rem] whitespace-normal break-words text-[11px] text-muted-foreground/80">
                         {describeAsk(r)}
                       </div>
+                      {r.blocked_by_rule && (
+                        <div className="mt-1 max-w-[22rem] whitespace-normal break-words rounded border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-600 dark:text-amber-400">
+                          Your organisation blocks this application, under the rule{' '}
+                          <strong>{r.blocked_by_rule}</strong>. It cannot be approved —
+                          the endpoint will refuse it however this is answered. Reject
+                          it, or ask an administrator to change the policy.
+                        </div>
+                      )}
                       {r.not_before && (
                         <div className="mt-0.5 text-[11px] text-amber-500">
                           from {formatTime(r.not_before)}
@@ -435,9 +491,18 @@ export default function ApproveRequests() {
                     {activeTab === 'pending' && (
                       <td className="px-4 py-3 whitespace-nowrap text-right">
                         <div className="flex items-center justify-end gap-2">
+                          {/* Clicking Approve on software a rule forbids
+                              opens the warning rather than approving, and
+                              offers the only two things that are actually
+                              available: reject it, or leave it alone and go
+                              and change the policy. A disabled button says
+                              none of that — somebody looking at one cannot
+                              tell whether it is the policy or a fault. */}
                           <Button
                             size="sm"
-                            onClick={() => handleApprove(r)}
+                            onClick={() =>
+                              r.blocked_by_rule ? setBlockedTarget(r) : handleApprove(r)
+                            }
                             disabled={approvingId === r.id}
                           >
                             <Check className="w-3.5 h-3.5 mr-1.5" />
@@ -596,6 +661,56 @@ export default function ApproveRequests() {
       </Dialog>
 
       {/* Reject reason */}
+      <Dialog open={!!blockedTarget} onOpenChange={(open) => !open && setBlockedTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>This application is blocked by policy</DialogTitle>
+            <DialogDescription asChild>
+              <div className="space-y-2 text-sm">
+                <p>
+                  Your organisation blocks{' '}
+                  <strong>
+                    {blockedTarget?.asks?.app_install?.applications?.join(', ') ??
+                      'this application'}
+                  </strong>{' '}
+                  under the rule <strong>{blockedTarget?.blocked_by_rule}</strong>.
+                </p>
+                <p>
+                  It cannot be approved from here. The machine will refuse it
+                  however this request is answered, so approving it would record
+                  a permission that never takes effect.
+                </p>
+                <p>
+                  To allow this application, the rule has to be changed or removed
+                  in <strong>Policies</strong> — by an administrator who may edit
+                  it. Otherwise, reject the request.
+                </p>
+              </div>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBlockedTarget(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                const target = blockedTarget;
+                setBlockedTarget(null);
+                if (target) {
+                  setRejectComment(
+                    `Blocked by the policy rule "${target.blocked_by_rule}".`,
+                  );
+                  setRejectTarget(target);
+                }
+              }}
+            >
+              Reject request
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={!!rejectTarget} onOpenChange={(open) => !open && setRejectTarget(null)}>
         <DialogContent>
           <DialogHeader>
