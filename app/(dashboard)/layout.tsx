@@ -4,6 +4,9 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AppSidebar } from '@/components/layout/AppSidebar';
 import { Header } from '@/components/layout/Header';
+import { LicenseExpiryBanner } from '@/components/LicenseExpiryBanner';
+import { LicenseLockGate } from '@/components/LicenseLockGate';
+import { LicenseProvider } from '@/contexts/LicenseContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { BreadcrumbProvider } from '@/contexts/BreadcrumbContext';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
@@ -52,8 +55,13 @@ export default function DashboardLayout({
             long tables are not squeezed for the sake of symmetry. */}
         <SidebarInset className="bg-sidebar">
           <div className="flex min-h-svh flex-1 flex-col overflow-hidden rounded-l-2xl bg-background">
-            <Header />
-            <main className="flex-1 p-4 lg:p-6">{children}</main>
+            <LicenseProvider>
+              <Header />
+              <LicenseExpiryBanner />
+              <LicenseLockGate>
+                <main className="flex-1 p-4 lg:p-6">{children}</main>
+              </LicenseLockGate>
+            </LicenseProvider>
           </div>
         </SidebarInset>
       </SidebarProvider>
