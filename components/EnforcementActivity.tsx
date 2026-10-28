@@ -1,9 +1,11 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import { AlertTriangle, Ban, Loader2, RotateCcw, ShieldOff, Trash2, XCircle } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { AlertTriangle, Ban, Loader2, RotateCcw, Search, ShieldAlert, ShieldOff, Trash2, X, XCircle } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { PaginationBar } from '@/components/ui/pagination-bar';
 import { InfoBanner } from '@/components/TabHeader';
@@ -35,30 +37,62 @@ export default function EnforcementActivity({ agentId }: { agentId?: string }) {
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
 
+  // Two pieces of state for one box: what is being typed, and what has been
+  // asked for. Querying on every keystroke sends a request per character, and
+  // the answers come back out of order — the list settles on whichever reply
+  // happened to be slowest, which is usually a prefix of what is on screen.
+  const [typed, setTyped] = useState('');
+  const [search, setSearch] = useState('');
+
+  useEffect(() => {
+    const t = setTimeout(() => setSearch(typed.trim()), 300);
+    return () => clearTimeout(t);
+  }, [typed]);
+
+  // A new search starts at the beginning. Staying on page 4 of the old result
+  // shows an empty page for a search that matched plenty, which reads as
+  // "nothing found".
+  useEffect(() => {
+    setPage(1);
+  }, [search]);
+
+  // Replies are applied in the order they were ASKED FOR, not the order they
+  // arrive. Debouncing makes an overtaking reply unlikely, not impossible: a
+  // slow answer for "cla" landing after a fast one for "claude" leaves the
+  // list showing one search while the box shows another, and nothing on
+  // screen says which one is being looked at.
+  const latest = useRef(0);
+
   const load = useCallback(async () => {
     if (!token) return;
+    const mine = ++latest.current;
     setLoading(true);
     try {
-      const res = await appControlAPI.events(token, { page, limit: PAGE_SIZE, agentId });
+      const res = await appControlAPI.events(token, { page, limit: PAGE_SIZE, agentId, search });
+      if (mine !== latest.current) return;
       setEvents(res.events ?? []);
       setTotal(res.total);
       setEnforcing(res.enforcement_enabled);
     } catch (err) {
+      if (mine !== latest.current) return;
       toast({
         title: 'Could not load enforcement activity',
         description: err instanceof Error ? err.message : 'Error',
         variant: 'destructive',
       });
     } finally {
-      setLoading(false);
+      if (mine === latest.current) setLoading(false);
     }
-  }, [token, page, agentId, toast]);
+  }, [token, page, agentId, search, toast]);
 
   useEffect(() => {
     load();
   }, [load]);
 
-  if (loading && events.length === 0) {
+  // Only the very first load replaces the panel. Once a search is running,
+  // tearing the list out and putting a spinner where the search box was means
+  // typing a second character is a race against the re-render.
+  if (loading && events.length === 0 && search === '') {
     return (
       <div className="flex items-center gap-2 py-8 text-muted-foreground">
         <Loader2 className="h-4 w-4 animate-spin" />
@@ -78,15 +112,59 @@ export default function EnforcementActivity({ agentId }: { agentId?: string }) {
         </InfoBanner>
       )}
 
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          value={typed}
+          onChange={e => setTyped(e.target.value)}
+          placeholder={
+            agentId
+              ? 'Search this machine — application, path, rule or policy'
+              : 'Search — application, path, rule, policy or machine'
+          }
+          aria-label="Search enforcement activity"
+          className="pl-9 pr-9"
+        />
+        {typed && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="absolute right-1 top-1/2 h-7 w-7 -translate-y-1/2"
+            onClick={() => setTyped('')}
+            aria-label="Clear search"
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        )}
+      </div>
+
       {events.length === 0 ? (
         <Card className="glass-card">
           <CardContent className="py-12 text-center">
             <ShieldOff className="mx-auto mb-3 h-8 w-8 text-muted-foreground" />
-            <p className="font-medium">Nothing has been blocked.</p>
-            <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
-              When an agent closes or prevents an application, it is recorded here with the rule
-              that decided it.
-            </p>
+            {/* "Nothing has been blocked" and "nothing matched your search"
+                are different facts, and they send somebody looking in
+                different places. Saying the first when the second is true is
+                how an operator concludes a policy never fired. */}
+            {search ? (
+              <>
+                <p className="font-medium">
+                  No enforcement activity matches &ldquo;{search}&rdquo;.
+                </p>
+                <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
+                  The whole history is searched, not just this page — application name, path,
+                  rule, policy{agentId ? '' : ' and machine'}. Clear the search to see everything.
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="font-medium">Nothing has been blocked.</p>
+                <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
+                  When an agent closes or prevents an application, it is recorded here with the
+                  rule that decided it.
+                </p>
+              </>
+            )}
           </CardContent>
         </Card>
       ) : (
@@ -102,7 +180,7 @@ export default function EnforcementActivity({ agentId }: { agentId?: string }) {
         totalPages={Math.max(1, Math.ceil(total / PAGE_SIZE))}
         total={total}
         onPageChange={setPage}
-        label="events"
+        label={search ? 'matching events' : 'events'}
       />
     </div>
   );
@@ -156,6 +234,15 @@ function EventRow({ event, showMachine }: { event: EnforcementEvent; showMachine
                 {event.detail}
               </p>
             )}
+            {/* A rule the endpoint cannot honour is the failure this product
+                has been bitten by twice: it looks configured and does nothing.
+                It is called out rather than shown as a generic failure. */}
+            {event.mechanism === 'elevate' && failed && (
+              <p className="text-xs text-amber-500">
+                This rule is not being honoured on this machine — nothing is running with
+                administrator rights because of it.
+              </p>
+            )}
             {event.mechanism === 'quarantine' && !failed && (
               <p className="text-xs text-muted-foreground">
                 Moved, not deleted — it is put back if the policy changes.
@@ -191,6 +278,14 @@ function MechanismIcon({ mechanism, failed }: { mechanism: string; failed: boole
       return <RotateCcw className={`${cls} text-emerald-500`} />;
     case 'quarantine':
       return <Trash2 className={`${cls} text-red-500`} />;
+    case 'elevate':
+    case 'elevate-launch':
+      // Amber, not green. Everything else here takes rights away and a
+      // success is reassuring; this hands them out, and a reader skimming the
+      // list should notice it.
+      return <ShieldAlert className={`${cls} text-amber-500`} />;
+    case 'elevate-revoked':
+      return <RotateCcw className={`${cls} text-emerald-500`} />;
     case 'refused':
       return <AlertTriangle className={`${cls} text-amber-500`} />;
     default:

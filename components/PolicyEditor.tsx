@@ -26,11 +26,69 @@ import {
   emptyCriteria,
 } from '@/lib/policies-api';
 
-const ACTIONS: { value: PolicyAction; label: string; hint: string }[] = [
-  { value: 'block', label: 'Block', hint: 'Stop it running' },
-  { value: 'elevate', label: 'Elevate', hint: 'Run it with admin rights' },
-  { value: 'allow', label: 'Allow', hint: 'Explicitly permit it' },
-  { value: 'default', label: 'Exempt', hint: 'Skip the rules below and fall through' },
+/* What each action DOES on the endpoint, in the words of somebody who has to
+ * choose between them.
+ *
+ * Every line here was checked against the agent rather than against the name
+ * of the action, because the two had drifted: "Elevate" has never done
+ * anything on any platform, and "Exempt" says nothing about the one property
+ * that makes it different from Allow. Somebody picking from this list is
+ * deciding what happens on a colleague's machine, and a hint that reads well
+ * but is wrong is worse than no hint.
+ *
+ * `retired` marks an action the product does not implement. It stays
+ * selectable only for rules that already use it — dropping it outright would
+ * leave those rules showing whatever the dropdown's first option happens to
+ * be, which silently rewrites a policy somebody wrote. */
+const ACTIONS: {
+  value: PolicyAction;
+  label: string;
+  hint: string;
+  detail: string;
+  retired?: boolean;
+}[] = [
+  {
+    value: 'block',
+    label: 'Block',
+    hint: 'Stop it being used',
+    detail:
+      'The application is closed whenever it is opened. Switch on "Remove blocked ' +
+      'applications" below to also move it off the machine — without that, on macOS ' +
+      'it stays in the Applications folder and is only closed each time somebody ' +
+      'opens it. Installing is held back only on macOS, and only for a disk image ' +
+      'holding one application: a .pkg, a .zip, or any Windows installer still runs, ' +
+      'and the block takes effect afterwards.',
+  },
+  {
+    value: 'allow',
+    label: 'Allow',
+    hint: 'Permit it, and stop later rules blocking it',
+    detail:
+      'Nothing below this rule can block the application. This is also what lets ' +
+      'somebody install, update and remove it without being asked for an ' +
+      'administrator password.',
+  },
+  {
+    value: 'default',
+    label: 'Exempt',
+    hint: "Stop here and use this policy's default action",
+    detail:
+      'The rules below are not consulted; the policy default decides instead. ' +
+      'Software exempted this way is never moved off the machine, even when the ' +
+      'default is Block — so this is how to block something without removing it. ' +
+      'It is also not installable without approval, because no rule allowed it.',
+  },
+  {
+    value: 'elevate',
+    label: 'Elevate',
+    hint: 'Does nothing — not implemented on any platform',
+    retired: true,
+    detail:
+      'Kept only so existing rules still show what they were set to. macOS cannot ' +
+      'intercept a launch without the Endpoint Security entitlement, and the ' +
+      'Windows side is not written, so a rule set to Elevate has no effect at all ' +
+      '— and a Block rule below it will not run either. Change it to Block or Allow.',
+  },
 ];
 
 const OPS: { value: MatchOp; label: string }[] = [
@@ -183,10 +241,18 @@ export default function PolicyEditor({ policy, onCancel, onSave, onSimulate, sim
           />
         </div>
 
-        {/* Only offered where it is meaningful. On an allow-list policy the
-            rules are the exceptions and the catch-all does the blocking, so
-            removal would sweep up every application the rules did not name. */}
-        {draft.mode === 'enforce' && draft.default_action !== 'block' && (
+        {/* Offered on every enforcing policy, including allow-list ones.
+            It used to be hidden when the default was Block, on the reasoning
+            that removal would then sweep up every application the rules did
+            not name. The catch-all cannot reach removal: the agent sets
+            Remove only on a decision that came from a RULE, and the
+            catch-all returns a decision with it left false. Hiding the
+            switch took removal away from the explicit block rules in the
+            same policy — and without removal a block on macOS is an
+            execute-bit change inside the bundle that macOS 14 refuses
+            without App Management, so the application stays installed and
+            is merely closed when somebody opens it. */}
+        {draft.mode === 'enforce' && (
           <div className="flex items-start justify-between gap-4 rounded-lg border border-border/60 p-3">
             <div className="space-y-0.5">
               <Label className="font-medium">Remove blocked applications</Label>
@@ -200,6 +266,13 @@ export default function PolicyEditor({ policy, onCancel, onSave, onSimulate, sim
                 : the agent puts it back if you change the rule, and when the agent is
                 uninstalled.
               </p>
+              {draft.default_action === 'block' && (
+                <p className="max-w-xl text-xs text-muted-foreground">
+                  Only applications an explicit <strong>Block</strong> rule names are
+                  moved. Software that is simply not on your allow list is stopped from
+                  opening but stays where it is — the catch-all never removes anything.
+                </p>
+              )}
             </div>
             <Switch
               checked={draft.remove_blocked ?? false}
@@ -310,6 +383,7 @@ function RuleEditor({
   onRemove: () => void;
   onMove: (delta: number) => void;
 }) {
+  const selectedAction = ACTIONS.find(a => a.value === rule.action);
   const field = (
     key: 'app_name' | 'publisher' | 'file_path' | 'bundle_id',
     label: string,
@@ -380,7 +454,7 @@ function RuleEditor({
           onChange={v => onChange({ action: v as PolicyAction })}
           className="h-9 w-auto min-w-[14rem] text-sm"
         >
-          {ACTIONS.map(a => (
+          {ACTIONS.filter(a => !a.retired || rule.action === a.value).map(a => (
             <option key={a.value} value={a.value}>
               {a.label} — {a.hint}
             </option>
@@ -399,6 +473,16 @@ function RuleEditor({
             <Trash2 className="h-4 w-4 text-destructive" />
           </Button>
         </div>
+
+        {/* On its own line BELOW the controls.
+            Putting it before them pushed the enable toggle and the reorder
+            buttons onto a second row — controls somebody uses constantly
+            moved so that an explanation they read once could go first. */}
+        {selectedAction && !selectedAction.retired && (
+          <p className="basis-full text-xs text-muted-foreground">
+            {selectedAction.detail}
+          </p>
+        )}
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2">
@@ -407,6 +491,8 @@ function RuleEditor({
         {field('file_path', 'Path', 'C:\\Program Files\\Steam')}
         {field('bundle_id', 'Bundle ID (macOS)', 'com.valvesoftware.steam')}
       </div>
+
+      {rule.action === 'elevate' && <ElevateNotSupportedYet />}
 
       <RuleReach match={rule.match} />
     </div>
@@ -425,6 +511,33 @@ function RuleEditor({
  *  So the conditions are counted back, and the one combination that can NEVER
  *  match anything — a Windows path together with a macOS bundle identifier,
  *  which no single machine can satisfy — is called out as the error it is. */
+/** Said here, at the moment somebody chooses it, rather than left to be
+ *  discovered later in the activity feed.
+ *
+ *  No platform can elevate yet: the agent's platformElevator returns
+ *  "unsupported" on both Windows and macOS. Everything around the action is
+ *  real — it is carried in the policy, it survives a save, the simulation
+ *  counts it and the endpoint reports that it cannot honour it — but nothing
+ *  runs with administrator rights because of it.
+ *
+ *  A rule that looks configured and quietly does nothing is the failure this
+ *  product has already shipped twice. The dropdown offering "Run it with
+ *  admin rights" with no qualification is exactly that shape, so the
+ *  qualification goes next to the choice. */
+function ElevateNotSupportedYet() {
+  return (
+    <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-600 dark:text-amber-400">
+      <p className="font-medium">Nothing will run elevated because of this rule — yet.</p>
+      <p className="mt-1">
+        Elevation is not implemented on Windows or macOS. The rule is saved, pushed to
+        endpoints and counted in simulations, and each machine reports back that it cannot
+        honour it — you can see that under Enforcement activity. Use <strong>Block</strong> or{' '}
+        <strong>Allow</strong> for rules you need enforced today.
+      </p>
+    </div>
+  );
+}
+
 function RuleReach({ match }: { match: MatchCriteria }) {
   const filled = (m?: StringMatch) => (m?.values ?? []).some(v => v.trim() !== '');
 

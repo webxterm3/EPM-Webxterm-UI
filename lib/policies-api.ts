@@ -123,6 +123,11 @@ export interface SimulationResponse {
 export interface PolicyListResponse {
   policies: AppPolicy[] | null;
   enforcement_enabled: boolean;
+  /** Whether an alert about this fleet would actually be delivered. False
+   *  means the server has no SMTP configured, so notifications are silently
+   *  dropped — which is indistinguishable from a quiet fleet unless it is
+   *  said. */
+  email_notifications?: boolean;
 }
 
 export const policiesAPI = {

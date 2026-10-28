@@ -24,6 +24,14 @@ export interface Group {
   keycloak_id: string;
   member_ids: string[];
   machine_ids: string[];
+  /** Who decides access requests for this group's machines.
+   *
+   *  Not the same as membership — members USE the machines, administrators
+   *  decide who else may. And not the same as the company_admin role, which is
+   *  a property of the account rather than of one group: the point is that the
+   *  person who knows whether somebody should reach a finance laptop is not
+   *  the one who knows about an engineering one. */
+  admin_ids?: string[];
   /** Set when the group came from Microsoft Entra. Its membership is replaced
    *  on every sync, so editing it here would be overwritten. */
   entra_group_id?: string;
@@ -270,6 +278,28 @@ export const groupsAPI = {
     const qs = params.toString();
     return apiRequest<{ members: User[]; total: number; page: number; limit: number; total_pages: number }>(`/groups/${groupId}/members${qs ? `?${qs}` : ''}`, {
       method: 'GET',
+      token,
+    });
+  },
+
+  async getGroupAdmins(token: string, groupId: string): Promise<{ admins: User[]; total: number }> {
+    return apiRequest<{ admins: User[]; total: number }>(`/groups/${groupId}/admins`, {
+      method: 'GET',
+      token,
+    });
+  },
+
+  async addGroupAdmin(token: string, groupId: string, userId: string): Promise<{ message: string }> {
+    return apiRequest<{ message: string }>(`/groups/${groupId}/admins`, {
+      method: 'POST',
+      body: JSON.stringify({ user_id: userId }),
+      token,
+    });
+  },
+
+  async removeGroupAdmin(token: string, groupId: string, userId: string): Promise<{ message: string }> {
+    return apiRequest<{ message: string }>(`/groups/${groupId}/admins/${userId}`, {
+      method: 'DELETE',
       token,
     });
   },
