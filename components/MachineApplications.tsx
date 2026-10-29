@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Loader2, Search, Package, AlertCircle, User, Monitor, ShieldX, RefreshCw } from 'lucide-react';
+import { Loader2, Search, Package, AlertCircle, User, Monitor, ShieldPlus, RefreshCw } from 'lucide-react';
 import Link from 'next/link';
 
 import { Button } from '@/components/ui/button';
@@ -236,19 +236,20 @@ export default function MachineApplications({ token, agentId }: Props) {
                     )}
                   </td>
                   <td className="px-4 py-2.5 text-right">
-                    {/* Opens a pre-filled draft rather than blocking on the
-                        spot. A block authored from one click in a list, with
-                        no sight of its scope or its catch-all, is how an
-                        estate-wide outage happens by accident. */}
+                    {/* Opens a pre-filled DRAFT, and saves nothing. Scope,
+                        the catch-all and the action itself all still need a
+                        human decision — a policy authored from one click in
+                        a list is how an estate-wide outage gets written by
+                        accident. */}
                     <Button
                       asChild
                       variant="ghost"
                       size="sm"
-                      className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-destructive"
+                      className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
                     >
-                      <Link href={blockHref(app, agentId)}>
-                        <ShieldX className="h-3.5 w-3.5" />
-                        Block
+                      <Link href={policyHref(app, agentId)}>
+                        <ShieldPlus className="h-3.5 w-3.5" />
+                        Create policy
                       </Link>
                     </Button>
                   </td>
@@ -262,7 +263,14 @@ export default function MachineApplications({ token, agentId }: Props) {
   );
 }
 
-/** Link to the policy editor, pre-filled to block this one application.
+/** Link to the policy editor, pre-filled with this one application.
+ *
+ *  What the rule DOES is left to the editor. This used to say "block" in the
+ *  URL, in the policy name and in the rule name, which was fine while the
+ *  button said Block — and a trap once it stopped: an operator who changed
+ *  the action to allow was left with a policy called "Block Slack" that
+ *  allowed Slack. The identity is what this link carries; the verdict is the
+ *  thing a person is being asked for.
  *
  *  bundle_id travels only when the application actually has one. Criteria are
  *  ANDed server-side, so sending an empty bundle ID for a Windows application
@@ -275,8 +283,8 @@ export default function MachineApplications({ token, agentId }: Props) {
  *  shown in the editor so nobody has to guess what the machine reports, and
  *  left out of the criteria so the rule still works on the next machine.
  */
-function blockHref(app: InstalledApp, agentId: string | undefined): string {
-  const params = new URLSearchParams({ block: app.name });
+function policyHref(app: InstalledApp, agentId: string | undefined): string {
+  const params = new URLSearchParams({ app: app.name });
   if (app.publisher) params.set('publisher', app.publisher);
   if (app.bundle_id) params.set('bundle_id', app.bundle_id);
   if (app.install_path || app.exe_path) {

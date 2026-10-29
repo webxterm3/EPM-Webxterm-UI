@@ -75,17 +75,22 @@ function PoliciesPageInner() {
   const [simulation, setSimulation] = useState<SimulationResponse | null>(null);
   const [simulating, setSimulating] = useState(false);
 
-  // Arriving from a machine's Applications tab with "Block this application".
-  // A draft is OPENED, not saved: scope and the catch-all both still need a
-  // human decision, and silently creating a block policy from one click in a
-  // list is how a fleet-wide outage gets authored by accident.
+  // Arriving from "Create policy" on a machine's Applications tab, or from
+  // the fleet catalogue. A draft is OPENED, not saved: the scope, the
+  // catch-all and the action all still need a human decision, and silently
+  // creating a policy from one click in a list is how a fleet-wide outage
+  // gets authored by accident.
+  //
+  // "block" is still read, so a link somebody bookmarked while the button
+  // said Block keeps working.
   const [seeded, setSeeded] = useState(false);
   useEffect(() => {
-    if (seeded || params.get('block') === null) return;
+    const name = params.get('app') ?? params.get('block');
+    if (seeded || name === null) return;
     setSeeded(true);
     setEditing(
-      draftBlockPolicy({
-        name: params.get('block') ?? '',
+      draftPolicyFor({
+        name,
         publisher: params.get('publisher') ?? '',
         agent: params.get('agent') ?? '',
         bundleID: params.get('bundle_id') ?? '',
@@ -456,14 +461,22 @@ function PolicyModeBadge({
   );
 }
 
-/** A one-rule block policy, pre-filled from an installed application.
+/** A one-rule policy, pre-filled from an installed application.
+ *
+ *  Named after the APPLICATION, not after what the rule does. The rule opens
+ *  set to block, because that is what somebody reaching for this from a list
+ *  of installed software almost always wants — but it is a dropdown, and an
+ *  operator may well change it. Baking the verdict into the policy name, as
+ *  this once did, meant changing the action left a policy called "Block
+ *  Slack" that allowed Slack, and the list page is where people read what
+ *  their policies do.
  *
  *  Bundle ID is only set for a macOS application. Populated criteria are
  *  ANDed, so carrying an empty bundle ID onto a Windows app would produce a
- *  rule that matches nothing — the easiest way to author a block that
+ *  rule that matches nothing — the easiest way to author a rule that
  *  silently does nothing at all.
  */
-function draftBlockPolicy(app: {
+function draftPolicyFor(app: {
   name: string;
   publisher: string;
   agent: string;
@@ -488,11 +501,12 @@ function draftBlockPolicy(app: {
     .join(', ');
 
   return {
-    name: `Block ${app.name}`,
+    name: app.name,
     description:
-      `Created from the Applications tab of ${app.agent || 'a machine'}.\n` +
-      `That machine reports: ${reported}.\n` +
-      `The path is shown for reference only — matching on it would tie this rule ` +
+      `Created from ${app.agent ? `the Applications tab of ${app.agent}` : 'the application catalogue'}.\n` +
+      `Reported as: ${reported}.\n` +
+      `The rule starts set to BLOCK — change the action if you meant to allow it.\n` +
+      `The path is shown for reference only; matching on it would tie this rule ` +
       `to one machine's layout.`,
     enabled: true,
     // Scoped to the one machine it was raised from. Widening it to the whole
@@ -500,14 +514,14 @@ function draftBlockPolicy(app: {
     scope: app.agent ? { kind: 'machine', agent_ids: [app.agent] } : { kind: 'tenant' },
     mode: 'audit',
     priority: 0,
-    // Allow, not block: this policy exists to stop ONE application. A
-    // catch-all block would quietly turn it into an allow-list covering
-    // everything else on the machine.
+    // Allow, not block: this policy is about ONE application. A catch-all
+    // block would quietly turn it into an allow-list covering everything
+    // else on the machine.
     default_action: 'allow',
     rules: [
       {
         id: `r-${Date.now()}`,
-        name: `Block ${app.name}`,
+        name: app.name,
         enabled: true,
         action: 'block',
         match: {
