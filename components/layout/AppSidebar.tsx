@@ -25,6 +25,7 @@ import {
   Sun,
   Moon,
   Laptop,
+  KeyRound,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -99,7 +100,7 @@ const navSections: NavSection[] = [
       // Not role-gated: anybody may ASK for access to a machine, and the tab
       // they land on is their own requests. The approval queue and the policy
       // inside are gated by the page itself.
-      { title: 'Remote Access', href: '/remote-access', icon: MonitorSmartphone },
+      { title: 'JIT Request', href: '/remote-access', icon: MonitorSmartphone },
       { title: 'Packages', href: '/packages', icon: Package },
     ],
   },
@@ -108,6 +109,7 @@ const navSections: NavSection[] = [
     items: [
       { title: 'Audit & Reporting', href: '/audit-logs', icon: ClipboardList, roles: ['super_admin', 'company_admin'] },
       { title: 'Metrics', href: '/metrics', icon: BarChart2, roles: ['super_admin'] },
+      { title: 'License', href: '/license', icon: KeyRound },
       { title: 'Settings', href: '/settings', icon: SlidersHorizontal, roles: ['super_admin', 'company_admin'] },
     ],
   },

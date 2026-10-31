@@ -1,7 +1,7 @@
 /** How a policy's reach and its time windows are put into words.
  *
- *  Shared because two screens say it: application control under Policies,
- *  and remote access under Remote Access. Two copies of this would drift,
+ *  Shared because two screens say it: application control and remote access,
+ *  both under Policies. Two copies of this would drift,
  *  and the drift would be two pages describing the same policy differently. */
 
 import { DAY_NAMES, minutesToClock } from '@/lib/remote-access-policies-api';
