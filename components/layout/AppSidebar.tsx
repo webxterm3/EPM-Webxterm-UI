@@ -100,7 +100,7 @@ const navSections: NavSection[] = [
       // Not role-gated: anybody may ASK for access to a machine, and the tab
       // they land on is their own requests. The approval queue and the policy
       // inside are gated by the page itself.
-      { title: 'Remote Access', href: '/remote-access', icon: MonitorSmartphone },
+      { title: 'JIT Request', href: '/remote-access', icon: MonitorSmartphone },
       { title: 'Packages', href: '/packages', icon: Package },
     ],
   },
