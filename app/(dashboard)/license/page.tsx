@@ -12,10 +12,10 @@ import {
   RefreshCw,
   AlertTriangle,
   CheckCircle2,
+  KeyRound,
 } from 'lucide-react';
 import { useLicense } from '@/contexts/LicenseContext';
 import { LicenseStatus } from '@/lib/license-api';
-import { PageHeader } from '@/components/layout/PageHeader';
 import { Breadcrumb } from '@/components/ui/page-breadcrumb';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -97,17 +97,22 @@ export default function LicensePage() {
   };
 
   return (
-    <div className="space-y-6">
-      <Breadcrumb items={[{ label: 'License' }]} />
-      <div className="flex items-start justify-between gap-4">
-        <PageHeader
-          title="License"
-          description="Your WebXterm EPM license status and details."
-        />
-        <Button variant="outline" size="sm" onClick={refresh} disabled={loading} className="mt-1 shrink-0">
-          <RefreshCw className={cn('mr-2 size-4', loading && 'animate-spin')} />
-          Refresh
-        </Button>
+    <div className="animate-fade-in">
+      <Breadcrumb items={[{ label: 'License' }]} className="mb-6" />
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-bold flex items-center gap-2">
+            <KeyRound className="w-6 h-6 text-primary" />
+            License
+          </h1>
+          <p className="text-sm text-muted-foreground mt-1">Your WebXterm EPM license status and details.</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={refresh} disabled={loading}>
+            <RefreshCw className={cn('mr-2 size-4', loading && 'animate-spin')} />
+            Refresh
+          </Button>
+        </div>
       </div>
 
       {loading && !license && (
