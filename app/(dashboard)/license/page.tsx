@@ -13,6 +13,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   KeyRound,
+  FlaskConical,
 } from 'lucide-react';
 import { useLicense } from '@/contexts/LicenseContext';
 import { LicenseStatus } from '@/lib/license-api';
@@ -25,6 +26,13 @@ import { cn } from '@/lib/utils';
 function StateIcon({ state }: { state: LicenseStatus['state'] }) {
   if (state === 'locked') return <ShieldOff className="size-6 text-destructive" />;
   if (state === 'grace') return <ShieldAlert className="size-6 text-yellow-500" />;
+  // Dev mode is NOT a healthy licence, and a green tick said it was.
+  //
+  // There is no licence at all here — nothing was checked and nothing is
+  // enforced. The shield was the same one a paid, valid licence gets, which
+  // is the one thing this screen must never do: the whole reason somebody
+  // opens it is to find out whether they are licensed.
+  if (state === 'dev') return <FlaskConical className="size-6 text-blue-500" />;
   return <ShieldCheck className="size-6 text-primary" />;
 }
 
@@ -34,8 +42,19 @@ function StateBadge({ state }: { state: LicenseStatus['state'] }) {
       ? 'bg-destructive/10 text-destructive border-destructive/20'
       : state === 'grace'
       ? 'bg-yellow-500/10 text-yellow-600 border-yellow-500/20 dark:text-yellow-400'
+      : state === 'dev'
+      ? 'bg-blue-500/10 text-blue-600 border-blue-500/20 dark:text-blue-400'
       : 'bg-primary/10 text-primary border-primary/20';
-  const label = state === 'locked' ? 'Locked' : state === 'grace' ? 'Grace Period' : 'Active';
+  // "Development Mode", not "Active". The fall-through used to label it
+  // Active, which is a claim about a licence that does not exist.
+  const label =
+    state === 'locked'
+      ? 'Locked'
+      : state === 'grace'
+      ? 'Grace Period'
+      : state === 'dev'
+      ? 'Development Mode'
+      : 'Active';
   return (
     <span className={cn('inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold', cls)}>
       {label}
@@ -73,6 +92,17 @@ function ExpiryBar({ daysRemaining }: { daysRemaining: number }) {
       <div className={cn('h-full rounded-full transition-all', color)} style={{ width: `${pct}%` }} />
     </div>
   );
+}
+
+/** What to show where a licence would have put a value.
+ *
+ *  An em dash is right when a licence exists and simply left a field blank.
+ *  It is wrong in dev mode, where the field is empty because there is no
+ *  licence at all — and a page of dashes reads as a page that failed to
+ *  load rather than one saying something definite.
+ */
+function devValue(license: LicenseStatus, whenDev: string): string {
+  return license.state === 'dev' ? whenDev : '—';
 }
 
 export default function LicensePage() {
@@ -138,6 +168,7 @@ export default function LicensePage() {
             'lg:col-span-1',
             license.state === 'locked' && 'border-destructive/40',
             license.state === 'grace' && 'border-yellow-500/40',
+            license.state === 'dev' && 'border-blue-500/40',
           )}>
             <CardHeader className="pb-3">
               <CardTitle className="text-sm font-medium text-muted-foreground">License Status</CardTitle>
@@ -199,6 +230,28 @@ export default function LicensePage() {
                 </div>
               )}
 
+              {license.state === 'dev' && (
+                <div className="rounded-lg bg-blue-500/10 border border-blue-500/20 p-3">
+                  <div className="flex gap-2">
+                    <FlaskConical className="size-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+                    <div className="text-xs text-blue-700 dark:text-blue-300 space-y-1.5">
+                      <p className="font-medium">
+                        {license.message || 'License enforcement is disabled (dev mode).'}
+                      </p>
+                      <p>
+                        No license is installed and nothing is being checked. Every feature is
+                        available, machine numbers are not counted, and nothing will ever expire
+                        or lock.
+                      </p>
+                      <p>
+                        This is for development only. A production deployment must be given a
+                        real license, or it will go on reporting this.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {license.state === 'ok' && (license.days_remaining === null || license.days_remaining > 15) && (
                 <div className="rounded-lg bg-primary/5 border border-primary/20 p-3">
                   <div className="flex gap-2">
@@ -217,18 +270,51 @@ export default function LicensePage() {
             </CardHeader>
             <CardContent>
               <div>
-                <DetailRow icon={Building2} label="Licensed to" value={license.company || '—'} />
+                {/* Shown FIRST, and shown always.
+                    Every other row below describes a licence. This one says
+                    whether any of them are being acted on — which in dev mode
+                    is the only true statement on the card. */}
+                <DetailRow
+                  icon={license.enforcement ? ShieldCheck : ShieldOff}
+                  label="Enforcement"
+                  value={
+                    license.enforcement ? (
+                      <span>On — limits and expiry are applied</span>
+                    ) : (
+                      <span className="text-blue-600 dark:text-blue-400">
+                        Off — nothing on this page is being enforced
+                      </span>
+                    )
+                  }
+                />
+                <DetailRow
+                  icon={Building2}
+                  label="Licensed to"
+                  value={license.company || devValue(license, 'No license installed')}
+                />
                 <DetailRow
                   icon={Package}
                   label="Plan"
                   value={
-                    <span className="capitalize">{license.plan || '—'}</span>
+                    <span className="capitalize">
+                      {license.plan || devValue(license, 'Development')}
+                    </span>
                   }
                 />
                 <DetailRow
                   icon={Server}
                   label="Machine quota"
-                  value={license.machine_quota === 0 ? 'Unlimited' : `${license.machine_quota} machines`}
+                  value={
+                    // "Unlimited" on its own was the most misleading line on
+                    // the page: a quota of 0 means "no limit recorded", and
+                    // in dev mode that is because there is no licence to
+                    // record one — not because somebody bought the top plan.
+                    license.machine_quota > 0
+                      ? `${license.machine_quota} machines`
+                      : license.state === 'dev'
+                      ? 'Unlimited — not counted in dev mode'
+                      : 'Unlimited'
+                  }
                 />
                 <DetailRow
                   icon={Clock}
@@ -244,7 +330,9 @@ export default function LicensePage() {
                           ({expiryLabel(license.days_remaining)})
                         </span>
                       </span>
-                    ) : 'No expiry'
+                    ) : (
+                      devValue(license, 'Never — no license to expire')
+                    )
                   }
                 />
                 <DetailRow
@@ -252,7 +340,7 @@ export default function LicensePage() {
                   label="License ID"
                   value={
                     <code className="text-xs font-mono text-muted-foreground break-all">
-                      {license.license_id || '—'}
+                      {license.license_id || devValue(license, 'None')}
                     </code>
                   }
                 />
