@@ -50,6 +50,17 @@ export interface AppPolicy {
   mode: string;
   priority: number;
   default_action: PolicyAction;
+  /** How many machines this policy actually reaches, as the server counts
+   *  it. Absent means it could not be worked out — which is a different
+   *  answer from zero and must not be shown as one.
+   *
+   *  Zero is the thing worth surfacing. A policy names AGENT IDs, and an
+   *  agent ID belongs to one ENROLMENT rather than to a Mac: re-enrol the
+   *  machine and the policy goes on naming an id nothing answers to. It
+   *  then applies to nobody while still reading as enabled and enforcing,
+   *  and the only symptom is software somebody believes they blocked
+   *  asking to be approved. */
+  machines_in_scope?: number;
   /** Make a block bite harder: software a RULE matched is MOVED off the
    *  machine rather than only stopped from launching.
    *

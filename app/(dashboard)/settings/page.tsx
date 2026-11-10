@@ -87,6 +87,34 @@ import { cn } from '@/lib/utils';
 import { copyToClipboard } from '@/lib/clipboard';
 import { useToast } from '@/hooks/use-toast';
 
+/** The http/https choice, as the portal's own Select.
+ *
+ *  A bare <select> renders with the operating system's chrome — a different
+ *  height, a different font, and a grey that belongs to nothing else on the
+ *  page. Beside the Inputs it sits next to, it reads as a control somebody
+ *  forgot to finish.
+ *
+ *  One component for both places that ask, so the two cannot drift into
+ *  looking different from each other as well as from everything else.
+ */
+function ProtocolSelect({
+  value,
+  onChange,
+}: {
+  value: 'http' | 'https';
+  onChange: (v: 'http' | 'https') => void;
+}) {
+  return (
+    <Select value={value || 'https'} onValueChange={v => onChange(v as 'http' | 'https')}>
+      <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+      <SelectContent>
+        <SelectItem value="https">https</SelectItem>
+        <SelectItem value="http">http</SelectItem>
+      </SelectContent>
+    </Select>
+  );
+}
+
 // ── Archive status badge ──────────────────────────────────────────────────────
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
@@ -131,16 +159,14 @@ function StorageCredsForm({
     );
   };
 
+
   if (type === 's3') {
     const c = creds as S3Creds;
     return (
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-1.5">
           <Label>Protocol</Label>
-          <select value={c.protocol} onChange={e => onChange({ ...c, protocol: e.target.value as 'http' | 'https' })} className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring">
-            <option value="https">https</option>
-            <option value="http">http</option>
-          </select>
+          <ProtocolSelect value={c.protocol} onChange={v => onChange({ ...c, protocol: v })} />
         </div>
         {field('Endpoint URL', 'endpoint', 's3.amazonaws.com')}
         {field('Access Key', 'access_key', 'AKIAIOSFODNN7EXAMPLE')}
@@ -226,10 +252,18 @@ function StorageCredsForm({
         {field('Token / API Key', 'token', '', 'password')}
         <div className="space-y-1.5">
           <Label>Format</Label>
-          <select value={c.format} onChange={e => onChange({ ...c, format: e.target.value as 'json' | 'cef' })} className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring">
-            <option value="json">JSON</option>
-            <option value="cef">CEF (ArcSight)</option>
-          </select>
+          {/* The last native select on this page. Left behind it would be
+              the one control that still looks like the browser's. */}
+          <Select
+            value={c.format || 'json'}
+            onValueChange={v => onChange({ ...c, format: v as 'json' | 'cef' })}
+          >
+            <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="json">JSON</SelectItem>
+              <SelectItem value="cef">CEF (ArcSight)</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
       </div>
     );
@@ -311,6 +345,8 @@ export default function SettingsPage() {
   const [copiedGeneratedKey, setCopiedGeneratedKey] = useState(false);
 
   // ── Log Management state (admin + super_admin) ───────────────
+  const [s3Testing, setS3Testing] = useState(false);
+  const [s3TestResult, setS3TestResult] = useState<{ ok: boolean; msg: string } | null>(null);
   const [s3, setS3]                           = useState<S3Config>({ enabled: false, endpoint: '', protocol: 'https', access_key: '', secret_key: '', bucket: '', region: '' });
   const [secretKeySet, setSecretKeySet]       = useState(false);
   const [showSecret, setShowSecret]           = useState(false);
@@ -740,6 +776,22 @@ export default function SettingsPage() {
     } catch (err) {
       setTestResult({ ok: false, msg: err instanceof Error ? err.message : 'Connection failed' });
     } finally { setLmTesting(false); }
+  };
+
+  // The recording bucket's own test.
+  //
+  // Separate state from the archive destination's: the two are different
+  // buckets with different credentials, and one result shown under both
+  // would say a destination works when the other one was tested.
+  const handleTestS3Recording = async () => {
+    if (!token) return;
+    setS3Testing(true); setS3TestResult(null);
+    try {
+      await settingsAPI.testS3Config(token, s3);
+      setS3TestResult({ ok: true, msg: 'Connection successful!' });
+    } catch (err) {
+      setS3TestResult({ ok: false, msg: err instanceof Error ? err.message : 'Connection failed' });
+    } finally { setS3Testing(false); }
   };
 
   const handleArchiveNow = () => {
@@ -1383,10 +1435,7 @@ export default function SettingsPage() {
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-1.5">
                       <Label>Protocol</Label>
-                      <select value={s3.protocol} onChange={e => setS3(prev => ({ ...prev, protocol: e.target.value as 'http' | 'https' }))} className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring">
-                        <option value="https">https</option>
-                        <option value="http">http</option>
-                      </select>
+                      <ProtocolSelect value={s3.protocol} onChange={v => setS3(p => ({ ...p, protocol: v }))} />
                     </div>
                     <div className="space-y-1.5"><Label>Endpoint URL</Label><Input placeholder="s3.amazonaws.com" value={s3.endpoint} onChange={e => setS3(p => ({ ...p, endpoint: e.target.value }))} /></div>
                     <div className="space-y-1.5"><Label>Access Key</Label><Input placeholder="AKIAIOSFODNN7EXAMPLE" value={s3.access_key} onChange={e => setS3(p => ({ ...p, access_key: e.target.value }))} autoComplete="off" /></div>
@@ -1417,11 +1466,37 @@ export default function SettingsPage() {
                       {s3Message}
                     </div>
                   )}
-                  <div className="flex justify-end">
-                    <Button onClick={handleSaveS3} disabled={s3Saving} className="gap-2">
-                      {s3Saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                      {s3Saving ? 'Saving…' : 'Save S3 Config'}
+                  <div className="flex items-center gap-3">
+                    {/* Testing before saving, deliberately in that order.
+                        Until this existed the only way to find out that
+                        recordings were going nowhere was to run a session,
+                        end it, and wait for a recording that never came. */}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="gap-2"
+                      disabled={s3Testing || !s3.bucket}
+                      onClick={handleTestS3Recording}
+                    >
+                      {s3Testing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wifi className="w-3.5 h-3.5" />}
+                      Test Connection
                     </Button>
+                    {s3TestResult && (
+                      <span className={cn('flex items-center gap-1.5 text-sm', s3TestResult.ok ? 'text-green-400' : 'text-destructive')}>
+                        {s3TestResult.ok ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertCircle className="w-4 h-4 shrink-0" />}
+                        {/* The whole message. S3's own reason names which of
+                            a dozen settings is wrong; truncating it to
+                            "Connection failed" throws that away. */}
+                        <span className="break-all">{s3TestResult.msg}</span>
+                      </span>
+                    )}
+                    <div className="ml-auto">
+                      <Button onClick={handleSaveS3} disabled={s3Saving} className="gap-2">
+                        {s3Saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                        {s3Saving ? 'Saving…' : 'Save S3 Config'}
+                      </Button>
+                    </div>
                   </div>
                 </CardContent>
               )}
@@ -1571,21 +1646,35 @@ export default function SettingsPage() {
                         {/* Storage destination */}
                         <div className="space-y-3">
                           <Label className="text-base font-semibold">Storage Destination</Label>
-                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                            {(Object.entries(STORAGE_LABELS) as [StorageType, string][])
-                              .filter(([k]) => k !== '')
-                              .map(([key, label]) => (
-                                <button
-                                  key={key}
-                                  type="button"
-                                  onClick={() => { setStorageType(key); setStorageCreds(defaultCredsForType(key)); setTestResult(null); }}
-                                  className={cn('flex items-center gap-2 px-3 py-2.5 rounded-lg border text-sm font-medium text-left transition-all', storageType === key ? 'bg-primary/10 border-primary/50 text-primary' : 'bg-muted/20 border-border/40 hover:border-primary/30')}
-                                >
-                                  <Shield className="w-3.5 h-3.5 shrink-0" />
-                                  {label}
-                                </button>
-                              ))}
-                          </div>
+                          {/* A dropdown, not seven buttons in a grid.
+                              It is a one-of-seven choice that is made once and
+                              then never looked at again, and as a grid it took
+                              more room than the credentials it introduces. */}
+                          <Select
+                            value={storageType || undefined}
+                            onValueChange={v => {
+                              const key = v as StorageType;
+                              setStorageType(key);
+                              setStorageCreds(defaultCredsForType(key));
+                              // The old result belonged to the old
+                              // destination. Left on screen it would report
+                              // one bucket as reachable under another's name.
+                              setTestResult(null);
+                            }}
+                          >
+                            <SelectTrigger className="w-full sm:w-72">
+                              <SelectValue placeholder="Choose where archives are written" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {(Object.entries(STORAGE_LABELS) as [StorageType, string][])
+                                .filter(([k]) => k !== '')
+                                .map(([key, label]) => (
+                                  <SelectItem key={key} value={key}>
+                                    {label}
+                                  </SelectItem>
+                                ))}
+                            </SelectContent>
+                          </Select>
                         </div>
 
                         {/* Credentials form */}

@@ -62,6 +62,7 @@ import {
   HardDrive as HardDriveIcon,
   CheckCircle2,
   XCircle,
+  ScrollText,
 } from 'lucide-react';
 import { Breadcrumb } from '@/components/ui/page-breadcrumb';
 import { Button } from '@/components/ui/button';
@@ -94,6 +95,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import MachineApplications from '@/components/MachineApplications';
+import EndpointLogs from '@/components/EndpointLogs';
 import EnforcementActivity from '@/components/EnforcementActivity';
 import { copyToClipboard } from '@/lib/clipboard';
 import { cn } from '@/lib/utils';
@@ -232,12 +234,15 @@ export default function MachineDetails() {
   const { theme } = useTheme();
 
   const [machine, setMachine] = useState<(Machine & { registration_token?: string }) | null>(null);
-  const [logs, setLogs] = useState<LogEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('overview');
 
   // Logs sub-tab state
-  const [logsSubTab, setLogsSubTab] = useState<'active' | 'entire' | 'sessions' | 'recordings' | 'users'>('entire');
+  // 'active' is the default now that the terminal-command tabs are gone.
+  // It was 'entire', which no longer exists — a Tabs whose value matches no
+  // trigger renders every panel closed, so the section would have opened
+  // blank with nothing selected.
+  const [logsSubTab, setLogsSubTab] = useState<'active' | 'recordings' | 'users' | 'endpoint'>('active');
 
   // Session recordings state
   const [recordings, setRecordings] = useState<SessionRecording[]>([]);
@@ -250,12 +255,6 @@ export default function MachineDetails() {
   const [playerTitle, setPlayerTitle] = useState('');
   const [convertingId, setConvertingId] = useState<string | null>(null);
   const [activeSessions, setActiveSessions] = useState<Session[]>([]);
-  const [allSessions, setAllSessions] = useState<Session[]>([]);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<LogEntry[] | null>(null);
-  const [sessionsPage, setSessionsPage] = useState(1);
-  const [sessionsTotalPages, setSessionsTotalPages] = useState(0);
-  const [sessionsTotal, setSessionsTotal] = useState(0);
 
   // Access management state
   const [allUsers, setAllUsers] = useState<Array<{ id: string; username: string; email: string; role: string }>>([]);
@@ -265,11 +264,6 @@ export default function MachineDetails() {
 
   // Pagination state
   const [accessUsersPage, setAccessUsersPage] = useState(1);
-  const [logsPage, setLogsPage] = useState(1);
-  const [logsTotalPages, setLogsTotalPages] = useState(0);
-  const [logsTotal, setLogsTotal] = useState(0);
-  const [searchTotalPages, setSearchTotalPages] = useState(0);
-  const [searchTotal, setSearchTotal] = useState(0);
   const itemsPerPage = 5;
 
   // Terminal state
@@ -335,19 +329,6 @@ export default function MachineDetails() {
     }
   };
 
-  const loadLogs = async (page = logsPage) => {
-    if (!token || !machine?.agent_id) return;
-
-    try {
-      const data = await machinesAPI.getMachineLogs(token, machine.agent_id, { page, limit: itemsPerPage });
-      setLogs(data.logs || []);
-      setLogsTotal(data.total ?? 0);
-      setLogsTotalPages(data.total_pages ?? 0);
-    } catch (error) {
-      console.error('Failed to load logs:', error);
-      setLogs([]);
-    }
-  };
 
   const loadActiveSessions = async () => {
     if (!token || !machine?.agent_id) return;
@@ -361,19 +342,6 @@ export default function MachineDetails() {
     }
   };
 
-  const loadAllSessions = async (page = sessionsPage) => {
-    if (!token || !machine?.agent_id) return;
-
-    try {
-      const data = await machinesAPI.getMachineSessions(token, machine.agent_id, { page, limit: itemsPerPage });
-      setAllSessions(data.sessions || []);
-      setSessionsTotal(data.total ?? 0);
-      setSessionsTotalPages(data.total_pages ?? 0);
-    } catch (error) {
-      console.error('Failed to load sessions:', error);
-      setAllSessions([]);
-    }
-  };
 
   const loadRecordings = async () => {
     if (!token || !machine?.agent_id) return;
@@ -539,28 +507,7 @@ export default function MachineDetails() {
     }
   };
 
-  const handleSearch = async (page = 1) => {
-    if (!token || !machine?.agent_id || !searchQuery.trim()) {
-      setSearchResults(null);
-      return;
-    }
 
-    try {
-      const data = await machinesAPI.searchLogs(token, machine.agent_id, searchQuery, { page, limit: itemsPerPage });
-      setSearchResults(data.logs || []);
-      setSearchTotal(data.total ?? 0);
-      setSearchTotalPages(data.total_pages ?? 0);
-      setLogsPage(page);
-    } catch (error) {
-      console.error('Failed to search logs:', error);
-      setSearchResults([]);
-    }
-  };
-
-  const clearSearch = () => {
-    setSearchQuery('');
-    setSearchResults(null);
-  };
 
   const loadAccessUsers = async () => {
     if (!token || !machine?.agent_id) return;
@@ -794,9 +741,6 @@ export default function MachineDetails() {
   // Windows (desktop) machines only expose Active Sessions + Recordings — if the
   // hidden terminal-log subtabs were selected, fall back to Active Sessions.
   useEffect(() => {
-    if (machine?.os?.toLowerCase().includes('windows') && (logsSubTab === 'entire' || logsSubTab === 'sessions')) {
-      setLogsSubTab('active');
-    }
   }, [machine?.os, logsSubTab]);
 
   // Poll live desktop sessions every 5s (lightweight) so the UI shows who is connected.
@@ -825,13 +769,14 @@ export default function MachineDetails() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [machine?.agent_id, token]);
 
-  // Load logs, sessions and access users when machine is loaded
+  // Load the access list and whatever sessions are live when the machine
+  // arrives. The command-log and session-history fetches went with the tabs
+  // that displayed them — they were two paged queries on every visit to a
+  // machine page, for data nothing rendered any more.
   useEffect(() => {
     if (machine?.agent_id) {
-      loadLogs(1);
       loadAccessUsers();
       loadActiveSessions();
-      loadAllSessions(1);
     }
   }, [machine?.agent_id, token]);
 
@@ -1948,40 +1893,25 @@ export default function MachineDetails() {
                 <FileText className="w-5 h-5" />
                 Logs & Sessions
               </CardTitle>
-              <div className="flex items-center gap-2">
-                {/* Search Input */}
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                  <Input
-                    placeholder="Search commands..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                    className="pl-9 w-64"
-                  />
-                  {searchQuery && (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6"
-                      onClick={clearSearch}
-                    >
-                      <X className="w-3 h-3" />
-                    </Button>
-                  )}
-                </div>
-                <Button size="sm" variant="outline" onClick={() => handleSearch(1)}>
-                  Search
-                </Button>
-                <Button size="sm" variant="outline" onClick={() => { loadLogs(1); loadActiveSessions(); loadAllSessions(1); }}>
+              {/* This refreshes the SESSION lists, so it is shown only on the
+                  tabs those lists are on.
+                  On System Logs it was a second Refresh sitting next to the
+                  one that refreshes what you are actually looking at — and
+                  the header one would have refreshed something off-screen,
+                  which reads as a button that does nothing.
+
+                  The command search that used to live here went with the
+                  Entire Logs tab it fed, for the same reason. */}
+              {(logsSubTab === 'active' || logsSubTab === 'users') && (
+                <Button size="sm" variant="outline" onClick={loadActiveSessions}>
                   <RefreshCw className="w-4 h-4 mr-2" />
                   Refresh
                 </Button>
-              </div>
+              )}
             </CardHeader>
             <CardContent>
               {/* Sub-tabs for logs */}
-              <Tabs value={logsSubTab} onValueChange={(v) => setLogsSubTab(v as 'active' | 'entire' | 'sessions' | 'recordings' | 'users')}>
+              <Tabs value={logsSubTab} onValueChange={(v) => setLogsSubTab(v as 'active' | 'recordings' | 'users' | 'endpoint')}>
                 <TabsList className="mb-4">
                   <TabsTrigger value="active" className="flex items-center gap-2">
                     <Activity className="w-4 h-4" />
@@ -1991,24 +1921,33 @@ export default function MachineDetails() {
                     <Users className="w-4 h-4" />
                     Users
                   </TabsTrigger>
-                  {/* Terminal command logs are irrelevant for Windows (desktop) machines. */}
-                  {!machine.os?.toLowerCase().includes('windows') && (
-                    <>
-                      <TabsTrigger value="entire" className="flex items-center gap-2">
-                        <FileText className="w-4 h-4" />
-                        Entire Logs ({searchResults ? searchTotal : logsTotal})
-                      </TabsTrigger>
-                      <TabsTrigger value="sessions" className="flex items-center gap-2">
-                        <Users className="w-4 h-4" />
-                        Session Logs ({sessionsTotal})
-                      </TabsTrigger>
-                    </>
-                  )}
                   <TabsTrigger value="recordings" className="flex items-center gap-2">
                     <Video className="w-4 h-4" />
                     Session Recordings ({recordingsTotal})
                   </TabsTrigger>
+                  {/* The machine's OWN logs, as opposed to everything beside
+                      it here, which is this product's record of what people
+                      did through it. Shown on every platform: macOS unified
+                      logging and the Windows event log both ship. */}
+                  <TabsTrigger value="endpoint" className="flex items-center gap-2">
+                    <ScrollText className="w-4 h-4" />
+                    System Logs
+                  </TabsTrigger>
                 </TabsList>
+
+                {/* Mounted only when selected, and unmounted when it is not.
+                    Reading the archive means listing and downloading objects,
+                    which is not work to do because somebody opened a machine
+                    page to look at something else. */}
+                <TabsContent value="endpoint">
+                  {machine.agent_id ? (
+                    <EndpointLogs agentId={machine.agent_id} />
+                  ) : (
+                    <p className="py-8 text-center text-sm text-muted-foreground">
+                      This machine has not connected yet, so it has shipped no logs.
+                    </p>
+                  )}
+                </TabsContent>
 
                 {/* Active Sessions Tab */}
                 <TabsContent value="active">
@@ -2103,234 +2042,6 @@ export default function MachineDetails() {
                     );
                   })()}
                 </TabsContent>
-
-                {/* Entire Logs Tab */}
-                <TabsContent value="entire">
-                  {(() => {
-                    const displayLogs = searchResults !== null ? searchResults : logs;
-                    const displayTotal = searchResults !== null ? searchTotal : logsTotal;
-                    const displayTotalPages = searchResults !== null ? searchTotalPages : logsTotalPages;
-                    const onPageChange = (p: number) => {
-                      setLogsPage(p);
-                      if (searchResults !== null) {
-                        handleSearch(p);
-                      } else {
-                        loadLogs(p);
-                      }
-                    };
-                    return displayLogs.length === 0 ? (
-                      <div className="flex flex-col items-center justify-center py-12 text-center">
-                        <FileText className="w-12 h-12 text-muted-foreground/50 mb-4" />
-                        <h3 className="text-lg font-medium mb-2">
-                          {searchResults !== null ? 'No matching logs' : 'No command logs'}
-                        </h3>
-                        <p className="text-muted-foreground">
-                          {searchResults !== null ? 'Try a different search query' : 'Commands executed on this machine will appear here'}
-                        </p>
-                      </div>
-                    ) : (
-                      <>
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead>Command</TableHead>
-                              <TableHead>User</TableHead>
-                              <TableHead>Source</TableHead>
-                              <TableHead>Time</TableHead>
-                              <TableHead>Status</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {displayLogs.map((log) => (
-                              <TableRow key={log.id}>
-                                <TableCell className="font-mono text-sm max-w-md">
-                                  <TooltipProvider>
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <span className="truncate block cursor-help">{log.command}</span>
-                                      </TooltipTrigger>
-                                      <TooltipContent side="top" className="max-w-lg">
-                                        <p className="font-mono text-xs break-all whitespace-pre-wrap">{log.command}</p>
-                                      </TooltipContent>
-                                    </Tooltip>
-                                  </TooltipProvider>
-                                </TableCell>
-                                <TableCell className="text-muted-foreground text-sm">{log.username}</TableCell>
-                                <TableCell>
-                                  <Badge variant="outline" className={cn(
-                                    log.source === 'vscode' ? "bg-blue-500/10 text-blue-500 border-blue-500/20" :
-                                    log.source === 'cli' ? "bg-green-500/10 text-green-500 border-green-500/20" :
-                                    "bg-purple-500/10 text-purple-500 border-purple-500/20"
-                                  )}>
-                                    {log.source?.toUpperCase() || 'UI'}
-                                  </Badge>
-                                </TableCell>
-                                <TableCell className="text-muted-foreground text-sm">
-                                  {new Date(log.timestamp).toLocaleString()}
-                                </TableCell>
-                                <TableCell>
-                                  <Badge variant="outline" className={cn(
-                                    log.success
-                                      ? "bg-success/10 text-success border-success/20"
-                                      : "bg-destructive/10 text-destructive border-destructive/20"
-                                  )}>
-                                    {log.success ? 'Success' : 'Failed'}
-                                  </Badge>
-                                </TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-
-                        {/* Pagination for Logs */}
-                        {displayTotalPages > 1 && (
-                          <div className="flex items-center justify-between mt-4 pt-4 border-t">
-                            <p className="text-sm text-muted-foreground">
-                              Showing {((logsPage - 1) * itemsPerPage) + 1} to {Math.min(logsPage * itemsPerPage, displayTotal)} of {displayTotal} logs
-                            </p>
-                            <div className="flex items-center gap-2">
-                              <Button
-                                variant="outline"
-                                size="icon"
-                                disabled={logsPage === 1}
-                                onClick={() => onPageChange(logsPage - 1)}
-                              >
-                                <ChevronLeft className="w-4 h-4" />
-                              </Button>
-                              {Array.from({ length: Math.min(displayTotalPages, 5) }, (_, i) => i + 1).map(p => (
-                                <Button
-                                  key={p}
-                                  variant={logsPage === p ? 'default' : 'outline'}
-                                  size="icon"
-                                  onClick={() => onPageChange(p)}
-                                >
-                                  {p}
-                                </Button>
-                              ))}
-                              {displayTotalPages > 5 && <span className="text-muted-foreground">...</span>}
-                              <Button
-                                variant="outline"
-                                size="icon"
-                                disabled={logsPage === displayTotalPages}
-                                onClick={() => onPageChange(logsPage + 1)}
-                              >
-                                <ChevronRight className="w-4 h-4" />
-                              </Button>
-                            </div>
-                          </div>
-                        )}
-                      </>
-                    );
-                  })()}
-                </TabsContent>
-
-                {/* Session Logs Tab */}
-                <TabsContent value="sessions">
-                  {allSessions.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-12 text-center">
-                      <Users className="w-12 h-12 text-muted-foreground/50 mb-4" />
-                      <h3 className="text-lg font-medium mb-2">No session history</h3>
-                      <p className="text-muted-foreground">Terminal session history will appear here</p>
-                    </div>
-                  ) : (
-                    <>
-                      <div className="space-y-3">
-                        {allSessions.map((session) => (
-                          <Link
-                            key={session.session_id}
-                            href={`/machines/details/${machineId}/session/${session.session_id}`}
-                            className="block"
-                          >
-                            <div className="p-4 rounded-lg border bg-card hover:bg-accent/50 transition-colors cursor-pointer">
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-3">
-                                  <div className={cn(
-                                    "w-3 h-3 rounded-full",
-                                    session.status === 'active' ? "bg-green-500" : "bg-gray-400"
-                                  )} />
-                                  <div>
-                                    <p className="font-medium">{session.username}</p>
-                                    <p className="text-sm text-muted-foreground">
-                                      {session.session_id.slice(0, 25)}...
-                                    </p>
-                                  </div>
-                                </div>
-                                <div className="flex items-center gap-4">
-                                  <div className="text-center">
-                                    <Badge variant="outline" className={cn(
-                                      session.source === 'vscode' ? "bg-blue-500/10 text-blue-500 border-blue-500/20" :
-                                      session.source === 'cli' ? "bg-green-500/10 text-green-500 border-green-500/20" :
-                                      "bg-purple-500/10 text-purple-500 border-purple-500/20"
-                                    )}>
-                                      {session.source?.toUpperCase() || 'UI'}
-                                    </Badge>
-                                  </div>
-                                  <div className="text-center">
-                                    <p className="text-sm font-medium">{session.command_count}</p>
-                                    <p className="text-xs text-muted-foreground">Commands</p>
-                                  </div>
-                                  <div className="text-center">
-                                    <p className="text-sm">{session.os_info || 'Unknown'}</p>
-                                    <p className="text-xs text-muted-foreground">OS</p>
-                                  </div>
-                                  <div className="text-right">
-                                    <p className="text-sm">{new Date(session.created_at).toLocaleDateString()}</p>
-                                    <p className="text-xs text-muted-foreground">
-                                      {new Date(session.created_at).toLocaleTimeString()}
-                                    </p>
-                                  </div>
-                                  <Badge variant={session.status === 'active' ? 'default' : 'secondary'}>
-                                    {session.status}
-                                  </Badge>
-                                </div>
-                              </div>
-                            </div>
-                          </Link>
-                        ))}
-                      </div>
-
-                      {/* Pagination for Sessions */}
-                      {sessionsTotalPages > 1 && (() => {
-                        return (
-                          <div className="flex items-center justify-between mt-4 pt-4 border-t">
-                            <p className="text-sm text-muted-foreground">
-                              Showing {((sessionsPage - 1) * itemsPerPage) + 1} to {Math.min(sessionsPage * itemsPerPage, sessionsTotal)} of {sessionsTotal} sessions
-                            </p>
-                            <div className="flex items-center gap-2">
-                              <Button
-                                variant="outline"
-                                size="icon"
-                                disabled={sessionsPage === 1}
-                                onClick={() => { setSessionsPage(p => p - 1); loadAllSessions(sessionsPage - 1); }}
-                              >
-                                <ChevronLeft className="w-4 h-4" />
-                              </Button>
-                              {Array.from({ length: Math.min(sessionsTotalPages, 5) }, (_, i) => i + 1).map(p => (
-                                <Button
-                                  key={p}
-                                  variant={sessionsPage === p ? 'default' : 'outline'}
-                                  size="icon"
-                                  onClick={() => { setSessionsPage(p); loadAllSessions(p); }}
-                                >
-                                  {p}
-                                </Button>
-                              ))}
-                              <Button
-                                variant="outline"
-                                size="icon"
-                                disabled={sessionsPage === sessionsTotalPages}
-                                onClick={() => { setSessionsPage(p => p + 1); loadAllSessions(sessionsPage + 1); }}
-                              >
-                                <ChevronRight className="w-4 h-4" />
-                              </Button>
-                            </div>
-                          </div>
-                        );
-                      })()}
-                    </>
-                  )}
-                </TabsContent>
-
                 {/* Session Recordings Tab */}
                 <TabsContent value="recordings">
                   {recordingsLoading ? (

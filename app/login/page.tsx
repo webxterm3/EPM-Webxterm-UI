@@ -17,6 +17,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
+import { signupDisabled } from '@/lib/features';
 
 type LoginStep = 'credentials' | 'tenant-select';
 
@@ -486,17 +487,23 @@ export default function LoginPage() {
                   </>
                 )}
 
-                <motion.p
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ duration: 0.4, delay: 0.52 }}
-                  className="mt-6 text-center text-sm text-muted-foreground"
-                >
-                  Don&apos;t have an account?{' '}
-                  <Link href="/signup" className="text-primary hover:text-primary/80 font-medium transition-colors">
-                    Create account
-                  </Link>
-                </motion.p>
+                {/* The invitation goes with the form.
+                    Leaving "Create account" on a page whose /signup route
+                    redirects straight back here is worse than removing it:
+                    it looks broken rather than closed. */}
+                {!signupDisabled && (
+                  <motion.p
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ duration: 0.4, delay: 0.52 }}
+                    className="mt-6 text-center text-sm text-muted-foreground"
+                  >
+                    Don&apos;t have an account?{' '}
+                    <Link href="/signup" className="text-primary hover:text-primary/80 font-medium transition-colors">
+                      Create account
+                    </Link>
+                  </motion.p>
+                )}
               </motion.div>
             )}
 

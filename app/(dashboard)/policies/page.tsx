@@ -4,6 +4,7 @@ import { Suspense, useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
   Loader2, Plus, ShieldCheck, Trash2, FlaskConical, Info, Clock, History,
+  AlertTriangle,
 } from 'lucide-react';
 
 import { Breadcrumb } from '@/components/ui/page-breadcrumb';
@@ -358,6 +359,7 @@ function PoliciesPageInner() {
                       {(policy.rules?.length ?? 0) === 1 ? '' : 's'} · defaults to{' '}
                       {policy.default_action}
                     </CardDescription>
+                    <ReachWarning policy={policy} />
                   </div>
                   <div className="flex items-center gap-2">
                     <Button variant="outline" size="sm" onClick={() => simulate(policy)} className="gap-1.5">
@@ -424,6 +426,42 @@ function PoliciesPageInner() {
           <EnforcementActivity />
         </TabsContent>
       </Tabs>
+    </div>
+  );
+}
+
+/** Says when a policy reaches no machine at all.
+ *
+ *  This is the quietest way an application-control policy can fail. A
+ *  machine-scoped policy names AGENT IDs, and an agent ID belongs to one
+ *  ENROLMENT rather than to a Mac — re-enrol the machine and the policy
+ *  goes on naming an id nothing answers to.
+ *
+ *  Nothing errors. The resolver correctly finds no policy for the machine,
+ *  the endpoint correctly reports that no rule covers the software, and the
+ *  approval route correctly offers to ask. Meanwhile this page shows the
+ *  policy enabled and enforcing. The only symptom anybody sees is software
+ *  they believe they blocked asking to be approved — which reads as the
+ *  product being broken rather than as a policy pointing at nothing.
+ */
+function ReachWarning({ policy }: { policy: AppPolicy }) {
+  // Absent means the server could not work it out, which is NOT zero. A
+  // database hiccup must not put this warning on every policy on the page.
+  if (policy.machines_in_scope === undefined) return null;
+  if (policy.machines_in_scope > 0) return null;
+
+  const machineScoped = policy.scope?.kind === 'machine';
+
+  return (
+    <div className="mt-2 flex items-start gap-2 rounded-md border border-yellow-500/25 bg-yellow-500/10 p-2 text-xs text-yellow-700 dark:text-yellow-300">
+      <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+      <span>
+        <strong>This policy reaches no machine.</strong>{' '}
+        {machineScoped
+          ? 'It names a machine that is no longer enrolled — re-enrolling gives a machine a new identity, and the policy still names the old one. Edit the scope and pick the machine again.'
+          : 'No machine currently matches its scope.'}{' '}
+        Until then it is saved and has no effect.
+      </span>
     </div>
   );
 }
