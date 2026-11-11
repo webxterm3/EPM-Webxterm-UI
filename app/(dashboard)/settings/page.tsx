@@ -34,6 +34,7 @@ import {
   ScrollText,
   Globe,
 } from 'lucide-react';
+import FleetConfiguration from '@/components/FleetConfiguration';
 import { useAuth } from '@/contexts/AuthContext';
 import { useBranding } from '@/contexts/BrandingContext';
 import { brandingAPI } from '@/lib/branding-api';
@@ -1124,6 +1125,15 @@ export default function SettingsPage() {
           {isSuperAdmin && (
             <TabsTrigger value="mfa-settings" className="gap-2">
               <Shield className="w-4 h-4" />MFA
+            </TabsTrigger>
+          )}
+          {/* Super administrator only, and not because it is more technical:
+              one control here updates every agent in the estate at once, and
+              the other decides what happens on machines that have not been
+              enrolled yet. */}
+          {isSuperAdmin && (
+            <TabsTrigger value="configuration" className="gap-2">
+              <SlidersHorizontal className="w-4 h-4" />Configuration
             </TabsTrigger>
           )}
         </TabsList>
@@ -2234,6 +2244,19 @@ export default function SettingsPage() {
                 Reset to default
               </Button>
             </div>
+          </TabsContent>
+        )}
+
+        {/* ══════════════════════════════════════════════════════════
+            Configuration Tab  (super_admin only)
+
+            One control here updates every agent in the estate at once, and
+            the other decides what happens on machines that have not been
+            enrolled yet. Both reach further than anything else in Settings.
+        ══════════════════════════════════════════════════════════ */}
+        {isSuperAdmin && (
+          <TabsContent value="configuration" className="space-y-6">
+            <FleetConfiguration />
           </TabsContent>
         )}
 

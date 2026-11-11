@@ -95,6 +95,8 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import MachineApplications from '@/components/MachineApplications';
+import MachineAccounts from '@/components/MachineAccounts';
+import RemoteSessionState from '@/components/RemoteSessionState';
 import EndpointLogs from '@/components/EndpointLogs';
 import EnforcementActivity from '@/components/EnforcementActivity';
 import { copyToClipboard } from '@/lib/clipboard';
@@ -1181,6 +1183,10 @@ export default function MachineDetails() {
             <Package className="w-4 h-4" />
             Applications
           </TabsTrigger>
+          <TabsTrigger value="accounts" className="gap-2">
+            <Users className="w-4 h-4" />
+            Accounts
+          </TabsTrigger>
           <TabsTrigger value="security" className="gap-2">
             <ShieldAlert className="w-4 h-4" />
             Security
@@ -1603,6 +1609,11 @@ export default function MachineDetails() {
                   see everything you do, and have to approve the request before anything is
                   shown to you. The whole session is recorded.
                 </p>
+
+                {/* A session already in progress is why Start refuses, so it
+                    is shown here with the button that ends it — rather than
+                    leaving somebody to guess from an error in a popup. */}
+                <RemoteSessionState agentId={machine.agent_id} />
 
                 {!machine.is_connected ? (
                   <div className="rounded-xl border border-warning/30 bg-warning/10 p-4 text-sm text-warning">
@@ -2165,6 +2176,28 @@ export default function MachineDetails() {
                   <EnforcementActivity agentId={machine.agent_id} />
                 </div>
               )}
+            </>
+          )}
+        </TabsContent>
+
+        {/* Accounts Tab — who exists on this machine and who holds
+            administrator rights. Read-only: this is the evidence
+            least-privilege policy will be written from, and nothing here
+            changes an account on the endpoint.
+
+            Mounted only when selected, like Applications above. */}
+        <TabsContent value="accounts" className="space-y-6">
+          {activeTab === 'accounts' && (
+            <>
+              <div>
+                <h3 className="text-base font-semibold">Local accounts</h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Every account this machine knows, and which of them hold local administrator
+                  rights. An administrator can undo anything the agent enforces on this machine,
+                  so this list is the starting point for least privilege.
+                </p>
+              </div>
+              <MachineAccounts token={token} agentId={machine?.agent_id} />
             </>
           )}
         </TabsContent>

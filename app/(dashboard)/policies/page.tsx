@@ -4,7 +4,7 @@ import { Suspense, useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
   Loader2, Plus, ShieldCheck, Trash2, FlaskConical, Info, Clock, History,
-  AlertTriangle,
+  AlertTriangle, ShieldAlert,
 } from 'lucide-react';
 
 import { Breadcrumb } from '@/components/ui/page-breadcrumb';
@@ -28,6 +28,7 @@ import RemoteAccessPolicyEditor from '@/components/RemoteAccessPolicyEditor';
 import { TabHeader, InfoBanner } from '@/components/TabHeader';
 import { EnforcementSwitch } from '@/components/EnforcementSwitch';
 import EnforcementActivity from '@/components/EnforcementActivity';
+import PrivilegePolicies from '@/components/PrivilegePolicies';
 import { describeScope } from '@/lib/policy-scope';
 // The remote-access policy editor is deliberately not rendered here.
 //
@@ -265,6 +266,10 @@ function PoliciesPageInner() {
             <ShieldCheck className="h-4 w-4" />
             Applications
           </TabsTrigger>
+          <TabsTrigger value="privileges" className="gap-2">
+            <ShieldAlert className="h-4 w-4" />
+            Privileges
+          </TabsTrigger>
           <TabsTrigger value="activity" className="gap-2">
             <History className="h-4 w-4" />
             Activity
@@ -420,6 +425,19 @@ function PoliciesPageInner() {
             <PolicySimulation result={simulation} onClose={() => setSimulation(null)} />
           )}
         </TabsContent>
+
+        {/* Least privilege: who may hold local administrator rights. The
+
+            control the rest of this page depends on — an administrator can
+
+            undo anything application control enforces on their machine. */}
+
+        <TabsContent value="privileges" className="space-y-6">
+
+          <PrivilegePolicies />
+
+        </TabsContent>
+
 
         <TabsContent value="activity" className="space-y-6">
           <TabHeader description="What your machines actually did: software closed, launches prevented, applications restored. Decisions are made on the endpoint, so this is the only record of them." />
