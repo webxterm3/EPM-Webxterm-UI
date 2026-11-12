@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
+import { signupDisabled } from '@/lib/features';
 
 export default function SignupPage() {
   const [formData, setFormData] = useState({
@@ -124,6 +125,29 @@ export default function SignupPage() {
       setLoading(false);
     }
   };
+
+
+  // Middleware is what actually closes this route; this is the second lock
+  // on the same door. A page that CAN render when the feature is off is a
+  // page that will — through a client-side navigation, a stale build, or a
+  // matcher somebody narrows later — and the form it renders creates a
+  // tenant.
+  if (signupDisabled) {
+    return (
+      <div className="flex min-h-svh items-center justify-center p-6 text-center">
+        <div className="max-w-sm space-y-3">
+          <h1 className="text-xl font-semibold">Accounts are created by your administrator</h1>
+          <p className="text-sm text-muted-foreground">
+            Self-service signup is switched off on this installation. Ask whoever
+            runs it to create your organisation and account.
+          </p>
+          <Link href="/login" className="inline-block text-sm text-primary hover:text-primary/80">
+            Back to sign in
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="h-screen overflow-hidden flex">

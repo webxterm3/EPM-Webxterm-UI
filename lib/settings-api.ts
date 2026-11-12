@@ -48,6 +48,21 @@ export const settingsAPI = {
     return apiRequest<S3Config>('/config/s3', { token });
   },
 
+  /** Check that the session-recording bucket actually answers.
+   *
+   *  An empty secret_key means "test what is stored", matching save: the
+   *  form shows the stored key as dots, so a test over an existing
+   *  configuration sends none — and testing with an empty secret would
+   *  fail every time and call a working setup broken.
+   */
+  testS3Config: async (token: string, config: S3Config): Promise<{ status: string }> => {
+    return apiRequest<{ status: string }>('/config/s3/test', {
+      method: 'POST',
+      token,
+      body: JSON.stringify(config),
+    });
+  },
+
   saveS3Config: async (token: string, config: S3Config): Promise<{ message: string }> => {
     return apiRequest<{ message: string }>('/config/s3', {
       method: 'POST',

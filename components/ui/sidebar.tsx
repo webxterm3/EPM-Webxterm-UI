@@ -182,7 +182,12 @@ const Sidebar = React.forwardRef<
       {/* This is what handles the sidebar gap on desktop */}
       <div
         className={cn(
-          "relative h-svh w-[--sidebar-width] bg-transparent transition-[width] duration-200 ease-linear",
+          // shrink-0: this element is what reserves the rail's width in the
+          // flex row. Without it a wide page — the Applications tab's table
+          // is the one that showed this — squeezes the rail narrower as the
+          // content demands more room, and the navigation visibly shrinks
+          // when you change tab.
+          "relative h-svh w-[--sidebar-width] shrink-0 bg-transparent transition-[width] duration-200 ease-linear",
           "group-data-[collapsible=offcanvas]:w-0",
           "group-data-[side=right]:rotate-180",
           variant === "floating" || variant === "inset"
@@ -274,7 +279,12 @@ const SidebarInset = React.forwardRef<HTMLDivElement, React.ComponentProps<"main
     <main
       ref={ref}
       className={cn(
-        "relative flex min-h-svh flex-1 flex-col bg-background",
+        // min-w-0 is the other half of the same fix. A flex item defaults to
+        // min-width:auto, which means it refuses to become narrower than its
+        // contents — so a wide table does not scroll inside its own
+        // overflow-x-auto box, it widens this element instead and takes the
+        // space from the sidebar beside it.
+        "relative flex min-h-svh min-w-0 flex-1 flex-col bg-background",
         "peer-data-[variant=inset]:min-h-[calc(100svh-theme(spacing.4))] md:peer-data-[variant=inset]:m-2 md:peer-data-[state=collapsed]:peer-data-[variant=inset]:ml-2 md:peer-data-[variant=inset]:ml-0 md:peer-data-[variant=inset]:rounded-xl md:peer-data-[variant=inset]:shadow",
         className,
       )}

@@ -1,7 +1,16 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import { Loader2, Search, Package, AlertTriangle, ChevronRight, X, RefreshCw } from 'lucide-react';
+import { Fragment, useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
+import {
+  Loader2,
+  Search,
+  Package,
+  AlertTriangle,
+  ChevronRight,
+  RefreshCw,
+  ShieldPlus,
+} from 'lucide-react';
 
 import { Breadcrumb } from '@/components/ui/page-breadcrumb';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -40,33 +49,36 @@ export default function ApplicationsPage() {
   const [installs, setInstalls] = useState<InstalledApp[]>([]);
   const [installsLoading, setInstallsLoading] = useState(false);
 
-  const load = useCallback(async (toPage = page) => {
-    if (!token) return;
-    setLoading(true);
-    try {
-      // Paged server-side. The old call asked for 200 rows and showed them
-      // all: a fleet with more distinct applications than that simply had the
-      // rest missing, with nothing on screen to say so.
-      const res = await applicationsAPI.catalog(token, {
-        search: search.trim(),
-        limit: PAGE_SIZE,
-        skip: (toPage - 1) * PAGE_SIZE,
-      });
-      setEntries(res.applications ?? []);
-      setTotal(res.total ?? 0);
-      setPage(toPage);
-      setCoverage(res.coverage ?? null);
-    } catch (err) {
-      toast({
-        title: 'Could not load applications',
-        description: err instanceof Error ? err.message : 'Error',
-        variant: 'destructive',
-      });
-    } finally {
-      setLoading(false);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, search, toast]);
+  const load = useCallback(
+    async (toPage = page) => {
+      if (!token) return;
+      setLoading(true);
+      try {
+        // Paged server-side. The old call asked for 200 rows and showed them
+        // all: a fleet with more distinct applications than that simply had the
+        // rest missing, with nothing on screen to say so.
+        const res = await applicationsAPI.catalog(token, {
+          search: search.trim(),
+          limit: PAGE_SIZE,
+          skip: (toPage - 1) * PAGE_SIZE,
+        });
+        setEntries(res.applications ?? []);
+        setTotal(res.total ?? 0);
+        setPage(toPage);
+        setCoverage(res.coverage ?? null);
+      } catch (err) {
+        toast({
+          title: 'Could not load applications',
+          description: err instanceof Error ? err.message : 'Error',
+          variant: 'destructive',
+        });
+      } finally {
+        setLoading(false);
+      }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    },
+    [token, search, toast],
+  );
 
   useEffect(() => {
     // Back to page 1 whenever the search changes — staying on page 4 of a
@@ -118,9 +130,20 @@ export default function ApplicationsPage() {
     }
   }, [token, scanning, load, toast]);
 
-  const openEntry = useCallback(
+  // Clicking the open row closes it again.
+  //
+  // The detail opens UNDER the row rather than at the foot of the page, where
+  // it used to live: on a full catalogue that put the answer a screen and a
+  // half below the thing somebody had just clicked, so the click appeared to
+  // do nothing at all.
+  const toggleEntry = useCallback(
     async (entry: CatalogEntry) => {
+      if (selected && keyOf(selected) === keyOf(entry)) {
+        setSelected(null);
+        return;
+      }
       setSelected(entry);
+      setInstalls([]);
       if (!token) return;
       setInstallsLoading(true);
       try {
@@ -134,7 +157,7 @@ export default function ApplicationsPage() {
         setInstallsLoading(false);
       }
     },
-    [token],
+    [token, selected],
   );
 
   return (
@@ -144,8 +167,8 @@ export default function ApplicationsPage() {
       <div>
         <h1 className="text-2xl font-semibold">Applications</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Every application installed across your machines. This is what application-control
-          policy is written against.
+          Every application installed across your machines. This is what application-control policy
+          is written against.
         </p>
       </div>
 
@@ -206,40 +229,77 @@ export default function ApplicationsPage() {
                     <th className="px-4 py-2.5 font-medium">Publisher</th>
                     <th className="px-4 py-2.5 font-medium">Machines</th>
                     <th className="px-4 py-2.5 font-medium">Versions</th>
+                    <th className="px-4 py-2.5 text-right font-medium">Action</th>
                     <th className="w-10" />
                   </tr>
                 </thead>
                 <tbody>
-                  {entries.map(entry => (
-                    <tr
-                      key={`${entry.name}|${entry.publisher}`}
-                      onClick={() => openEntry(entry)}
-                      className="cursor-pointer border-t border-border/40 transition-colors hover:bg-muted/40"
-                    >
-                      <td className="px-4 py-2.5 font-medium">{entry.name}</td>
-                      <td className="px-4 py-2.5 text-muted-foreground">
-                        {entry.publisher || '—'}
-                      </td>
-                      <td className="px-4 py-2.5">{entry.machine_count}</td>
-                      <td className="px-4 py-2.5">
-                        {/* Several versions of one product across the fleet is
+                  {entries.map(entry => {
+                    const open = !!selected && keyOf(selected) === keyOf(entry);
+                    return (
+                      <Fragment key={keyOf(entry)}>
+                        <tr
+                          onClick={() => toggleEntry(entry)}
+                          className={cn(
+                            'cursor-pointer border-t border-border/40 transition-colors hover:bg-muted/40',
+                            open && 'bg-muted/40',
+                          )}
+                        >
+                          <td className="px-4 py-2.5 font-medium">{entry.name}</td>
+                          <td className="px-4 py-2.5 text-muted-foreground">
+                            {entry.publisher || '—'}
+                          </td>
+                          <td className="px-4 py-2.5">{entry.machine_count}</td>
+                          <td className="px-4 py-2.5">
+                            {/* Several versions of one product across the fleet is
                             the thing that makes hash-based rules brittle, so it
                             is surfaced rather than hidden behind a click. */}
-                        {entry.version_count > 1 ? (
-                          <Badge variant="outline" className="text-[10px]">
-                            {entry.version_count} versions
-                          </Badge>
-                        ) : (
-                          <span className="text-muted-foreground">
-                            {entry.versions[0] || '—'}
-                          </span>
+                            {entry.version_count > 1 ? (
+                              <Badge variant="outline" className="text-[10px]">
+                                {entry.version_count} versions
+                              </Badge>
+                            ) : (
+                              <span className="text-muted-foreground">
+                                {entry.versions[0] || '—'}
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-4 py-2.5 text-right">
+                            {/* stopPropagation, or following the link would also
+                            toggle the row open behind the navigation. */}
+                            <Button
+                              asChild
+                              variant="ghost"
+                              size="sm"
+                              onClick={e => e.stopPropagation()}
+                              className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+                            >
+                              <Link href={policyHref(entry)}>
+                                <ShieldPlus className="h-3.5 w-3.5" />
+                                Create policy
+                              </Link>
+                            </Button>
+                          </td>
+                          <td className="px-4 py-2.5 text-muted-foreground">
+                            <ChevronRight
+                              className={cn('h-4 w-4 transition-transform', open && 'rotate-90')}
+                            />
+                          </td>
+                        </tr>
+                        {open && (
+                          <tr className="border-t border-border/40 bg-muted/20">
+                            <td colSpan={6} className="px-4 py-4">
+                              <AppDetail
+                                entry={entry}
+                                installs={installs}
+                                loading={installsLoading}
+                              />
+                            </td>
+                          </tr>
                         )}
-                      </td>
-                      <td className="px-4 py-2.5 text-muted-foreground">
-                        <ChevronRight className="h-4 w-4" />
-                      </td>
-                    </tr>
-                  ))}
+                      </Fragment>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -258,17 +318,31 @@ export default function ApplicationsPage() {
           )}
         </CardContent>
       </Card>
-
-      {selected && (
-        <AppDetail
-          entry={selected}
-          installs={installs}
-          loading={installsLoading}
-          onClose={() => setSelected(null)}
-        />
-      )}
     </div>
   );
+}
+
+/** Identity of a catalogue row. Name AND publisher, because two vendors ship
+ *  software of the same name and they are not the same application. */
+function keyOf(entry: CatalogEntry): string {
+  return `${entry.name}|${entry.publisher}`;
+}
+
+/** Link to the policy editor, pre-filled with this application.
+ *
+ *  No agent id: the catalogue is fleet-wide, so there is no one machine this
+ *  came from, and the editor scopes an agent-less draft to the tenant.
+ *
+ *  sample_bundle and sample_exe are ONE machine's answer for an application
+ *  that may be installed on hundreds. The bundle id is stable across them and
+ *  travels as a condition; the path is not and travels as reference only.
+ */
+function policyHref(entry: CatalogEntry): string {
+  const params = new URLSearchParams({ app: entry.name });
+  if (entry.publisher) params.set('publisher', entry.publisher);
+  if (entry.sample_bundle) params.set('bundle_id', entry.sample_bundle);
+  if (entry.sample_exe) params.set('path', entry.sample_exe);
+  return `/policies?${params.toString()}`;
 }
 
 /** Says how much of the fleet these numbers actually cover.
@@ -324,78 +398,68 @@ function EmptyCatalogue({
   );
 }
 
+/** What one catalogue row expands into: where this application actually is.
+ *
+ *  Not a Card. It is rendered INSIDE the table row it belongs to, and a card
+ *  there reads as a second, unrelated panel that happens to have landed in
+ *  the middle of a list. There is no close button either — the row that
+ *  opened it closes it.
+ */
 function AppDetail({
   entry,
   installs,
   loading,
-  onClose,
 }: {
   entry: CatalogEntry;
   installs: InstalledApp[];
   loading: boolean;
-  onClose: () => void;
 }) {
   return (
-    <Card className="glass-card">
-      <CardHeader>
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <CardTitle>{entry.name}</CardTitle>
-            <CardDescription className="mt-1">
-              {entry.publisher || 'Unknown publisher'} · on {entry.machine_count} machine
-              {entry.machine_count === 1 ? '' : 's'}
-            </CardDescription>
-          </div>
-          <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close">
-            <X className="h-4 w-4" />
-          </Button>
+    <div className="space-y-3">
+      {entry.versions.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-xs text-muted-foreground">Versions:</span>
+          {entry.versions.map(v => (
+            <Badge key={v} variant="outline" className="text-[10px]">
+              {v || 'unknown'}
+            </Badge>
+          ))}
         </div>
-      </CardHeader>
+      )}
 
-      <CardContent className="space-y-4">
-        {entry.versions.length > 0 && (
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-xs text-muted-foreground">Versions:</span>
-            {entry.versions.map(v => (
-              <Badge key={v} variant="outline" className="text-[10px]">
-                {v || 'unknown'}
-              </Badge>
-            ))}
-          </div>
-        )}
-
-        {loading ? (
-          <div className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Loading machines…
-          </div>
-        ) : (
-          <div className="overflow-x-auto rounded-lg border border-border/60">
-            <table className="w-full text-sm">
-              <thead className="bg-muted/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
-                <tr>
-                  <th className="px-4 py-2.5 font-medium">Machine</th>
-                  <th className="px-4 py-2.5 font-medium">Version</th>
-                  <th className="px-4 py-2.5 font-medium">Installed for</th>
+      {loading ? (
+        <div className="flex items-center gap-2 py-3 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Loading machines…
+        </div>
+      ) : installs.length === 0 ? (
+        <p className="py-3 text-sm text-muted-foreground">
+          No machine reports this application any more.
+        </p>
+      ) : (
+        <div className="overflow-x-auto rounded-lg border border-border/60 bg-background">
+          <table className="w-full text-sm">
+            <thead className="bg-muted/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
+              <tr>
+                <th className="px-4 py-2 font-medium">Machine</th>
+                <th className="px-4 py-2 font-medium">Version</th>
+                <th className="px-4 py-2 font-medium">Installed for</th>
+              </tr>
+            </thead>
+            <tbody>
+              {installs.map(install => (
+                <tr key={install.id} className="border-t border-border/40">
+                  <td className="px-4 py-2 font-medium">{install.machine_name}</td>
+                  <td className="px-4 py-2 text-muted-foreground">{install.version || '—'}</td>
+                  <td className="px-4 py-2 text-muted-foreground">
+                    {install.scope === 'user' ? install.os_user || 'one user' : 'All users'}
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {installs.map(install => (
-                  <tr key={install.id} className="border-t border-border/40">
-                    <td className="px-4 py-2.5 font-medium">{install.machine_name}</td>
-                    <td className="px-4 py-2.5 text-muted-foreground">
-                      {install.version || '—'}
-                    </td>
-                    <td className="px-4 py-2.5 text-muted-foreground">
-                      {install.scope === 'user' ? install.os_user || 'one user' : 'All users'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </CardContent>
-    </Card>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
   );
 }

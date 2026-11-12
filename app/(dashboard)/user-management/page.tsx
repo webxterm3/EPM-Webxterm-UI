@@ -68,6 +68,7 @@ import {
   type User as UserType,
   type RoleDefinition
 } from '@/lib/user-management-api';
+import { signupDisabled } from '@/lib/features';
 
 export default function UserManagementPage() {
   const { user, token } = useAuth();
@@ -564,10 +565,16 @@ export default function UserManagementPage() {
                       Manage organizations in the system
                     </CardDescription>
                   </div>
-                  {/* <Button onClick={() => setCreateOrgDialog(true)}>
-                    <Plus className="w-4 h-4 mr-2" />
-                    Create Organization
-                  </Button> */}
+                  {/* Commented out already, and now also behind the flag —
+                      so whoever uncomments it does not quietly reopen
+                      tenant creation on an installation that switched it
+                      off at the signup form. */}
+                  {!signupDisabled && false && (
+                    <Button onClick={() => setCreateOrgDialog(true)}>
+                      <Plus className="w-4 h-4 mr-2" />
+                      Create Organization
+                    </Button>
+                  )}
                 </div>
               </CardHeader>
               <CardContent>

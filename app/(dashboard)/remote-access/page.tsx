@@ -10,6 +10,10 @@ import MyAccessRequests from '@/components/MyAccessRequests';
 
 /** Asking to reach somebody else's machine, and deciding those requests.
  *
+ *  Called JIT Request everywhere a person can read it. The ROUTE is still
+ *  /remote-access: it is in people's bookmarks and in links already sent out
+ *  by email, and renaming a path to match a label breaks those for nothing.
+ *
  *  Two halves of one workflow, and nothing else: the RULE about who may ask —
  *  scope, time windows, session limits — is administrator configuration and
  *  lives under Policies with the other rules. Somebody who comes here has
@@ -20,10 +24,10 @@ export default function RemoteAccessPage() {
 
   return (
     <div className="space-y-6">
-      <Breadcrumb items={[{ label: 'Remote Access' }]} />
+      <Breadcrumb items={[{ label: 'JIT Request' }]} />
 
       <div>
-        <h1 className="text-2xl font-bold">Remote Access</h1>
+        <h1 className="text-2xl font-bold">JIT Request</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Who may take over a machine, who has asked, and what was decided.
         </p>

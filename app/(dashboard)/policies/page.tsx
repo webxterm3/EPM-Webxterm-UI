@@ -4,6 +4,7 @@ import { Suspense, useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
   Loader2, Plus, ShieldCheck, Trash2, FlaskConical, Info, Clock, History,
+  AlertTriangle, ShieldAlert,
 } from 'lucide-react';
 
 import { Breadcrumb } from '@/components/ui/page-breadcrumb';
@@ -27,6 +28,7 @@ import RemoteAccessPolicyEditor from '@/components/RemoteAccessPolicyEditor';
 import { TabHeader, InfoBanner } from '@/components/TabHeader';
 import { EnforcementSwitch } from '@/components/EnforcementSwitch';
 import EnforcementActivity from '@/components/EnforcementActivity';
+import PrivilegePolicies from '@/components/PrivilegePolicies';
 import { describeScope } from '@/lib/policy-scope';
 // The remote-access policy editor is deliberately not rendered here.
 //
@@ -75,17 +77,22 @@ function PoliciesPageInner() {
   const [simulation, setSimulation] = useState<SimulationResponse | null>(null);
   const [simulating, setSimulating] = useState(false);
 
-  // Arriving from a machine's Applications tab with "Block this application".
-  // A draft is OPENED, not saved: scope and the catch-all both still need a
-  // human decision, and silently creating a block policy from one click in a
-  // list is how a fleet-wide outage gets authored by accident.
+  // Arriving from "Create policy" on a machine's Applications tab, or from
+  // the fleet catalogue. A draft is OPENED, not saved: the scope, the
+  // catch-all and the action all still need a human decision, and silently
+  // creating a policy from one click in a list is how a fleet-wide outage
+  // gets authored by accident.
+  //
+  // "block" is still read, so a link somebody bookmarked while the button
+  // said Block keeps working.
   const [seeded, setSeeded] = useState(false);
   useEffect(() => {
-    if (seeded || params.get('block') === null) return;
+    const name = params.get('app') ?? params.get('block');
+    if (seeded || name === null) return;
     setSeeded(true);
     setEditing(
-      draftBlockPolicy({
-        name: params.get('block') ?? '',
+      draftPolicyFor({
+        name,
         publisher: params.get('publisher') ?? '',
         agent: params.get('agent') ?? '',
         bundleID: params.get('bundle_id') ?? '',
@@ -259,6 +266,10 @@ function PoliciesPageInner() {
             <ShieldCheck className="h-4 w-4" />
             Applications
           </TabsTrigger>
+          <TabsTrigger value="privileges" className="gap-2">
+            <ShieldAlert className="h-4 w-4" />
+            Privileges
+          </TabsTrigger>
           <TabsTrigger value="activity" className="gap-2">
             <History className="h-4 w-4" />
             Activity
@@ -353,6 +364,7 @@ function PoliciesPageInner() {
                       {(policy.rules?.length ?? 0) === 1 ? '' : 's'} · defaults to{' '}
                       {policy.default_action}
                     </CardDescription>
+                    <ReachWarning policy={policy} />
                   </div>
                   <div className="flex items-center gap-2">
                     <Button variant="outline" size="sm" onClick={() => simulate(policy)} className="gap-1.5">
@@ -414,11 +426,60 @@ function PoliciesPageInner() {
           )}
         </TabsContent>
 
+        {/* Least privilege: who may hold local administrator rights. The
+
+            control the rest of this page depends on — an administrator can
+
+            undo anything application control enforces on their machine. */}
+
+        <TabsContent value="privileges" className="space-y-6">
+
+          <PrivilegePolicies />
+
+        </TabsContent>
+
+
         <TabsContent value="activity" className="space-y-6">
           <TabHeader description="What your machines actually did: software closed, launches prevented, applications restored. Decisions are made on the endpoint, so this is the only record of them." />
           <EnforcementActivity />
         </TabsContent>
       </Tabs>
+    </div>
+  );
+}
+
+/** Says when a policy reaches no machine at all.
+ *
+ *  This is the quietest way an application-control policy can fail. A
+ *  machine-scoped policy names AGENT IDs, and an agent ID belongs to one
+ *  ENROLMENT rather than to a Mac — re-enrol the machine and the policy
+ *  goes on naming an id nothing answers to.
+ *
+ *  Nothing errors. The resolver correctly finds no policy for the machine,
+ *  the endpoint correctly reports that no rule covers the software, and the
+ *  approval route correctly offers to ask. Meanwhile this page shows the
+ *  policy enabled and enforcing. The only symptom anybody sees is software
+ *  they believe they blocked asking to be approved — which reads as the
+ *  product being broken rather than as a policy pointing at nothing.
+ */
+function ReachWarning({ policy }: { policy: AppPolicy }) {
+  // Absent means the server could not work it out, which is NOT zero. A
+  // database hiccup must not put this warning on every policy on the page.
+  if (policy.machines_in_scope === undefined) return null;
+  if (policy.machines_in_scope > 0) return null;
+
+  const machineScoped = policy.scope?.kind === 'machine';
+
+  return (
+    <div className="mt-2 flex items-start gap-2 rounded-md border border-yellow-500/25 bg-yellow-500/10 p-2 text-xs text-yellow-700 dark:text-yellow-300">
+      <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+      <span>
+        <strong>This policy reaches no machine.</strong>{' '}
+        {machineScoped
+          ? 'It names a machine that is no longer enrolled — re-enrolling gives a machine a new identity, and the policy still names the old one. Edit the scope and pick the machine again.'
+          : 'No machine currently matches its scope.'}{' '}
+        Until then it is saved and has no effect.
+      </span>
     </div>
   );
 }
@@ -456,14 +517,22 @@ function PolicyModeBadge({
   );
 }
 
-/** A one-rule block policy, pre-filled from an installed application.
+/** A one-rule policy, pre-filled from an installed application.
+ *
+ *  Named after the APPLICATION, not after what the rule does. The rule opens
+ *  set to block, because that is what somebody reaching for this from a list
+ *  of installed software almost always wants — but it is a dropdown, and an
+ *  operator may well change it. Baking the verdict into the policy name, as
+ *  this once did, meant changing the action left a policy called "Block
+ *  Slack" that allowed Slack, and the list page is where people read what
+ *  their policies do.
  *
  *  Bundle ID is only set for a macOS application. Populated criteria are
  *  ANDed, so carrying an empty bundle ID onto a Windows app would produce a
- *  rule that matches nothing — the easiest way to author a block that
+ *  rule that matches nothing — the easiest way to author a rule that
  *  silently does nothing at all.
  */
-function draftBlockPolicy(app: {
+function draftPolicyFor(app: {
   name: string;
   publisher: string;
   agent: string;
@@ -488,11 +557,12 @@ function draftBlockPolicy(app: {
     .join(', ');
 
   return {
-    name: `Block ${app.name}`,
+    name: app.name,
     description:
-      `Created from the Applications tab of ${app.agent || 'a machine'}.\n` +
-      `That machine reports: ${reported}.\n` +
-      `The path is shown for reference only — matching on it would tie this rule ` +
+      `Created from ${app.agent ? `the Applications tab of ${app.agent}` : 'the application catalogue'}.\n` +
+      `Reported as: ${reported}.\n` +
+      `The rule starts set to BLOCK — change the action if you meant to allow it.\n` +
+      `The path is shown for reference only; matching on it would tie this rule ` +
       `to one machine's layout.`,
     enabled: true,
     // Scoped to the one machine it was raised from. Widening it to the whole
@@ -500,14 +570,14 @@ function draftBlockPolicy(app: {
     scope: app.agent ? { kind: 'machine', agent_ids: [app.agent] } : { kind: 'tenant' },
     mode: 'audit',
     priority: 0,
-    // Allow, not block: this policy exists to stop ONE application. A
-    // catch-all block would quietly turn it into an allow-list covering
-    // everything else on the machine.
+    // Allow, not block: this policy is about ONE application. A catch-all
+    // block would quietly turn it into an allow-list covering everything
+    // else on the machine.
     default_action: 'allow',
     rules: [
       {
         id: `r-${Date.now()}`,
-        name: `Block ${app.name}`,
+        name: app.name,
         enabled: true,
         action: 'block',
         match: {
